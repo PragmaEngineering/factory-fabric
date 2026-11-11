@@ -1,0 +1,491 @@
+use crate::{
+    config::{validate_value, Capability, Config, Package},
+    invocation::{private_dir, Executor, LaunchUncertain, Running},
+};
+use anyhow::{bail, Context, Result};
+use fs2::FileExt;
+use rusqlite::{params, Connection, OptionalExtension};
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+use std::{
+    fs,
+    io::Read,
+    os::unix::fs::{OpenOptionsExt, PermissionsExt},
+    path::Path,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
+
+pub fn now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+}
+pub fn terminal(state: &str) -> bool {
+    matches!(state, "completed" | "failed" | "cancelled")
+}
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Request {
+    pub request_key: String,
+    pub package: String,
+    pub capability: String,
+    pub input: Value,
+    #[serde(default)]
+    pub working_directory: Option<std::path::PathBuf>,
+}
+#[derive(Clone, Deserialize, Serialize)]
+pub struct Invocation {
+    pub id: String,
+    pub caller: String,
+    pub request: Request,
+    pub package: Package,
+    pub capability: Capability,
+    pub state: String,
+    pub accepted_at: u64,
+    pub running: Option<Running>,
+    pub cursor: String,
+    pub output: Option<Value>,
+    pub error: Option<String>,
+    #[serde(default)]
+    pub observation_error: Option<String>,
+}
+pub struct Service {
+    pub config: Config,
+    pub executor: Executor,
+    db: Mutex<Connection>,
+    _lease: fs::File,
+}
+impl Service {
+    pub fn open(config: Config, root: &Path) -> Result<Arc<Self>> {
+        private_dir(root)?;
+        let lease = fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .mode(0o600)
+            .open(root.join("service.lock"))?;
+        lease
+            .try_lock_exclusive()
+            .context("Fabric state directory already in use")?;
+        let db = Connection::open(root.join("fabric.db"))?;
+        fs::set_permissions(root.join("fabric.db"), fs::Permissions::from_mode(0o600))?;
+        db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; CREATE TABLE IF NOT EXISTS invocations(id TEXT PRIMARY KEY,caller TEXT NOT NULL,request_key TEXT NOT NULL,active INTEGER NOT NULL,body TEXT NOT NULL,UNIQUE(caller,request_key));")?;
+        db.execute_batch(
+            "CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY,value TEXT NOT NULL);",
+        )?;
+        let identity = serde_json::to_string(
+            &json!({"name":config.name,"controls_socket":config.controls_socket}),
+        )?;
+        let recorded: Option<String> = db
+            .query_row("SELECT value FROM metadata WHERE key='identity'", [], |r| {
+                r.get(0)
+            })
+            .optional()?;
+        if recorded.as_ref().is_some_and(|old| old != &identity) {
+            bail!("state directory belongs to another Fabric name or Controls host")
+        }
+        db.execute(
+            "INSERT OR IGNORE INTO metadata(key,value) VALUES('identity',?1)",
+            [identity],
+        )?;
+        let executor = Executor::new(&config, &root.join("invocations"))?;
+        let service = Arc::new(Self {
+            config,
+            executor,
+            db: Mutex::new(db),
+            _lease: lease,
+        });
+        Ok(service)
+    }
+    fn load(db: &Connection, id: &str) -> Result<Invocation> {
+        let raw: String = db
+            .query_row("SELECT body FROM invocations WHERE id=?1", [id], |r| {
+                r.get(0)
+            })
+            .context("unknown invocation")?;
+        Ok(serde_json::from_str(&raw)?)
+    }
+    fn save(db: &Connection, v: &Invocation) -> Result<()> {
+        db.execute("INSERT INTO invocations(id,caller,request_key,active,body) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(id) DO UPDATE SET active=excluded.active,body=excluded.body",params![v.id,v.caller,v.request.request_key,!terminal(&v.state),serde_json::to_string(v)?])?;
+        Ok(())
+    }
+    fn update(&self, id: &str, change: impl FnOnce(&mut Invocation)) -> Result<Invocation> {
+        let db = self.db.lock().unwrap();
+        let mut v = Self::load(&db, id)?;
+        change(&mut v);
+        Self::save(&db, &v)?;
+        Ok(v)
+    }
+    pub fn get(&self, id: &str, caller: &str) -> Result<Invocation> {
+        let db = self.db.lock().unwrap();
+        let v = Self::load(&db, id)?;
+        if v.caller != caller && v.running.as_ref().is_none_or(|r| r.worker_id != caller) {
+            bail!("not_authorized: invocation belongs to another caller")
+        };
+        Ok(v)
+    }
+    pub fn submit(self: &Arc<Self>, caller: &str, request: Request) -> Result<Invocation> {
+        if request.request_key.is_empty() || request.request_key.len() > 128 {
+            bail!("request_key must contain 1..128 characters")
+        }
+        let db = self.db.lock().unwrap();
+        let prior: Option<String> = db
+            .query_row(
+                "SELECT body FROM invocations WHERE caller=?1 AND request_key=?2",
+                params![caller, request.request_key],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if let Some(raw) = prior {
+            let old: Invocation = serde_json::from_str(&raw)?;
+            if serde_json::to_value(&old.request)? != serde_json::to_value(&request)? {
+                bail!("operation_conflict: request_key reused with different arguments")
+            };
+            return Ok(old);
+        }
+        let mut package = self
+            .config
+            .packages
+            .iter()
+            .find(|p| p.name == request.package)
+            .context("unknown package")?
+            .clone();
+        let capability = package
+            .capabilities
+            .iter()
+            .find(|c| c.name == request.capability)
+            .context("unknown capability")?
+            .clone();
+        validate_value(&capability.input_schema, &request.input)?;
+        if let Some(path) = &request.working_directory {
+            let path = fs::canonicalize(path)?;
+            if !path.is_dir() {
+                bail!("working_directory must be a directory")
+            };
+            package.working_directory = Some(path)
+        }
+        let count: usize =
+            db.query_row("SELECT count(*) FROM invocations WHERE active=1", [], |r| {
+                r.get(0)
+            })?;
+        if count >= self.config.concurrency {
+            bail!("capacity_exhausted: no worker slot; submission was not accepted")
+        }
+        let v = Invocation {
+            id: uuid::Uuid::new_v4().to_string(),
+            caller: caller.into(),
+            request,
+            package,
+            capability,
+            state: "accepted".into(),
+            accepted_at: now(),
+            running: None,
+            cursor: String::new(),
+            output: None,
+            error: None,
+            observation_error: None,
+        };
+        Self::save(&db, &v)?;
+        drop(db);
+        self.spawn(v.id.clone());
+        Ok(v)
+    }
+    fn spawn(self: &Arc<Self>, id: String) {
+        let service = Arc::clone(self);
+        std::thread::spawn(move || {
+            if let Err(e) = service.drive(&id) {
+                eprintln!("fabric: invocation {id} needs reconciliation: {e:#}")
+            }
+        });
+    }
+    pub fn resume(self: &Arc<Self>) -> Result<()> {
+        let ids: Vec<String> = {
+            let db = self.db.lock().unwrap();
+            let mut s = db.prepare("SELECT id FROM invocations WHERE active=1")?;
+            let rows = s.query_map([], |r| r.get(0))?;
+            rows.collect::<std::result::Result<_, _>>()?
+        };
+        for id in ids {
+            self.spawn(id)
+        }
+        Ok(())
+    }
+    pub fn cancel(&self, id: &str, caller: &str) -> Result<Invocation> {
+        self.get(id, caller)?;
+        self.update(id, |v| {
+            if !terminal(&v.state) {
+                v.state = "cancelling".into()
+            }
+        })
+    }
+    fn read_internal(&self, id: &str) -> Result<Invocation> {
+        Self::load(&self.db.lock().unwrap(), id)
+    }
+    fn recover_session(&self, v: &Invocation) -> Result<Option<Running>> {
+        let sessions = self.executor.controls.call("GET", "/sessions", None)?;
+        let found = sessions
+            .as_array()
+            .context("invalid session list")?
+            .iter()
+            .find(|s| s["name"] == format!("fabric:{}", v.id));
+        let Some(session) = found else {
+            return Ok(None);
+        };
+        let path = self.executor.root.join(&v.id).join("context.json");
+        let context: Value = serde_json::from_slice(&fs::read(path)?)?;
+        Ok(Some(Running {
+            id: v.id.clone(),
+            session_id: session["id"].as_str().context("missing session id")?.into(),
+            thread_id: context["thread_id"]
+                .as_str()
+                .context("missing thread")?
+                .into(),
+            worker_id: context["connection"]["participant_id"]
+                .as_str()
+                .context("missing worker")?
+                .into(),
+            package: v.package.clone(),
+            capability: v.capability.clone(),
+        }))
+    }
+    fn drive(&self, id: &str) -> Result<()> {
+        let initial = self.read_internal(id)?;
+        if initial.state == "accepted" {
+            // Persist before launch: never automatically repeat an uncertain POST.
+            let launching = self.update(id, |v| {
+                if v.state == "accepted" {
+                    v.state = "launching".into()
+                }
+            })?;
+            if launching.state == "launching" {
+                match self.executor.launch(
+                    id,
+                    &launching.package,
+                    &launching.capability,
+                    &launching.request.input,
+                    Some(&launching.caller),
+                ) {
+                    Ok(running) => {
+                        self.update(id, |v| {
+                            v.running = Some(running);
+                            if v.state == "launching" {
+                                v.state = "running".into()
+                            }
+                        })?;
+                    }
+                    Err(e) => {
+                        self.update(id, |v| {
+                            v.state = if e.is::<LaunchUncertain>() {
+                                "launch_uncertain"
+                            } else {
+                                "failed"
+                            }
+                            .into();
+                            v.error = Some(format!("{e:#}; launch was not retried"))
+                        })?;
+                    }
+                }
+            }
+        }
+        loop {
+            let v = self.read_internal(id)?;
+            if terminal(&v.state) {
+                return Ok(());
+            }
+            let running = if let Some(r) = v.running.clone() {
+                r
+            } else {
+                match self.recover_session(&v) {
+                    Ok(Some(r)) => {
+                        self.update(id, |v| {
+                            v.running = Some(r.clone());
+                            if matches!(v.state.as_str(), "launching" | "launch_uncertain") {
+                                v.state = "running".into();
+                                v.error = None
+                            }
+                        })?;
+                        r
+                    }
+                    Ok(None) if v.state == "cancelling" => {
+                        // A cancellation before launch is definite; an uncertain
+                        // launch remains reserved until the host proves its outcome.
+                        if v.error.is_none() {
+                            self.update(id, |v| v.state = "cancelled".into())?;
+                            return Ok(());
+                        }
+                        std::thread::sleep(Duration::from_secs(1));
+                        continue;
+                    }
+                    _ => {
+                        std::thread::sleep(Duration::from_secs(1));
+                        continue;
+                    }
+                }
+            };
+            let attempt = (|| -> Result<bool> {
+                if matches!(v.state.as_str(), "cancelling" | "finishing") {
+                    self.executor.stop(&running)?;
+                } else {
+                    let mut cursor = v.cursor.clone();
+                    let result = self.executor.poll_result(&running, &mut cursor);
+                    if result.as_ref().is_err_and(|e| e.is::<reqwest::Error>()) {
+                        return Err(result.unwrap_err());
+                    }
+                    self.update(id, |v| {
+                        v.cursor = cursor;
+                        if v.state == "running" {
+                            match result {
+                                Ok(Some(output)) => {
+                                    v.output = Some(output);
+                                    v.state = "finishing".into()
+                                }
+                                Err(ref e) => {
+                                    v.error = Some(format!("{e:#}"));
+                                    v.state = "finishing".into()
+                                }
+                                _ => {}
+                            }
+                        }
+                    })?;
+                }
+                let session = self.executor.session(&running)?;
+                if session["state"] != "running" && session["state"] != "stopping" {
+                    // Re-read after observing exit so a final committed message
+                    // cannot be mistaken for an exit without a result.
+                    let latest = self.read_internal(id)?;
+                    let mut cursor = latest.cursor.clone();
+                    let final_result = self.executor.poll_result(&running, &mut cursor);
+                    if final_result
+                        .as_ref()
+                        .is_err_and(|e| e.is::<reqwest::Error>())
+                    {
+                        return Err(final_result.unwrap_err());
+                    }
+                    self.update(id, |v| {
+                        v.cursor = cursor;
+                        if v.state == "cancelling" {
+                            v.state = "cancelled".into();
+                            return;
+                        }
+                        if v.state == "running" {
+                            match final_result {
+                                Ok(Some(out)) => v.output = Some(out),
+                                Err(e) => v.error = Some(format!("{e:#}")),
+                                _ => {}
+                            }
+                        }
+                        if v.output.is_some() && v.error.is_none() {
+                            v.state = "completed".into()
+                        } else {
+                            v.state = "failed".into();
+                            if v.error.is_none() {
+                                v.error = Some(format!(
+                                    "session {} without accepted result; exit_code={}",
+                                    session["state"], session["exit_code"]
+                                ))
+                            }
+                        }
+                    })?;
+                    self.executor.controls.retire(&running.worker_id)?;
+                    return Ok(true);
+                }
+                if now().saturating_sub(v.accepted_at) >= v.package.elapsed_seconds {
+                    self.update(id, |v| {
+                        if v.state == "running" {
+                            v.state = "finishing".into();
+                            v.error = Some("elapsed time limit exceeded".into())
+                        }
+                    })?;
+                }
+                Ok(false)
+            })();
+            match attempt {
+                Ok(true) => return Ok(()),
+                Err(e) => {
+                    self.update(id, |v| {
+                        if !terminal(&v.state) {
+                            v.observation_error = Some(format!(
+                                "transport unavailable; reconciliation pending: {e:#}"
+                            ))
+                        }
+                    })?;
+                }
+                _ => {
+                    self.update(id, |v| v.observation_error = None)?;
+                }
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    }
+    pub fn rpc(self: &Arc<Self>, name: &str, args: Value, caller: &str) -> Result<Value> {
+        match name {
+            "invoke" => Ok(serde_json::to_value(
+                self.submit(caller, serde_json::from_value(args)?)?,
+            )?),
+            "get" => Ok(serde_json::to_value(
+                self.get(args["id"].as_str().context("id required")?, caller)?,
+            )?),
+            "cancel" => Ok(serde_json::to_value(
+                self.cancel(args["id"].as_str().context("id required")?, caller)?,
+            )?),
+            "catalog" => Ok(self.config.catalog()),
+            _ => bail!("unknown Fabric operation"),
+        }
+    }
+}
+
+pub fn serve(config: Config, root: &Path) -> Result<()> {
+    let service = Service::open(config, root)?;
+    service.resume()?;
+    let socket = root.join("fabric.sock");
+    if socket.exists() {
+        fs::remove_file(&socket)?
+    }
+    let server = tiny_http::Server::http_unix(&socket).map_err(|e| anyhow::anyhow!("{e}"))?;
+    fs::set_permissions(&socket, fs::Permissions::from_mode(0o600))?;
+    let stopped = Arc::new(AtomicBool::new(false));
+    let flag = stopped.clone();
+    ctrlc::set_handler(move || flag.store(true, Ordering::Relaxed))?;
+    eprintln!("Fabric listening on {}", socket.display());
+    while !stopped.load(Ordering::Relaxed) {
+        let Some(mut request) = server.recv_timeout(Duration::from_millis(100))? else {
+            continue;
+        };
+        let service = service.clone();
+        std::thread::spawn(move || {
+            let result = (|| -> Result<Value> {
+                if request.method().as_str() != "POST" || request.url() != "/rpc" {
+                    bail!("POST /rpc required")
+                }
+                let mut raw = String::new();
+                request.as_reader().take(131073).read_to_string(&mut raw)?;
+                if raw.len() > 131072 {
+                    bail!("request too large")
+                }
+                let body: Value = serde_json::from_str(&raw)?;
+                let caller = service.executor.comms.connection.participant_id.clone();
+                service.rpc(
+                    body["method"].as_str().context("method required")?,
+                    body.get("params").cloned().unwrap_or(json!({})),
+                    &caller,
+                )
+            })();
+            let value = match result {
+                Ok(value) => json!({"result":value}),
+                Err(e) => json!({"error":format!("{e:#}")}),
+            };
+            let response = tiny_http::Response::from_string(value.to_string()).with_header(
+                tiny_http::Header::from_bytes("Content-Type", "application/json").unwrap(),
+            );
+            let _ = request.respond(response);
+        });
+    }
+    fs::remove_file(socket)?;
+    Ok(())
+}

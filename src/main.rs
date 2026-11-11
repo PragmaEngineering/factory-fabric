@@ -14,6 +14,15 @@ fn run() -> Result<()> {
                 println!("Valid Fabric configuration: {}", config.name);
             }
         }
+        Some("serve") if args.len() == 3 => {
+            agent_fabric::service::serve(Config::load(Path::new(&args[1]))?,Path::new(&args[2]))?;
+        }
+        Some("call") if args.len() == 4 => {
+            let client = agent_fabric::controls::Controls::new(Path::new(&args[1]))?;
+            let response = client.call("POST","/rpc",Some(&serde_json::json!({"method":args[2],"params":serde_json::from_str::<serde_json::Value>(&args[3])?})))?;
+            if let Some(error) = response.get("error") { bail!("{error}"); }
+            println!("{}",response["result"]);
+        }
         Some("run") if args.len() == 6 => {
             let config = Config::load(Path::new(&args[1]))?;
             let package = config.packages.iter().find(|p| p.name == args[2]).ok_or_else(|| anyhow::anyhow!("unknown package"))?;

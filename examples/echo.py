@@ -3,6 +3,7 @@ import json
 import os
 import urllib.request
 import uuid
+import time
 
 
 def call(connection, method, params):
@@ -34,6 +35,7 @@ def main():
         context = json.load(source)
     with open(os.environ["FACTORY_INPUTS_PATH"]) as source:
         output = json.load(source)
+    time.sleep(output.get("_delay", 0))
     connection = context["connection"]
     call(connection, "initialize", {"protocolVersion": "2025-03-26", "capabilities": {},
          "clientInfo": {"name": "fabric-echo", "version": "1"}})

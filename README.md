@@ -62,3 +62,28 @@ go run /path/to/fabric/tests/host/main.go /path/to/fabric
 The harness removes its private runtime and stops its processes after testing.
 Ordinary `cargo test` runs offline unit tests; integration tests are explicitly
 marked as requiring this host.
+
+## Asynchronous service
+
+```sh
+fabric serve fabric.yaml /absolute/private/fabric-state
+fabric call /absolute/private/fabric-state/fabric.sock invoke \
+  '{"request_key":"review-1","package":"utility","capability":"echo","input":{}}'
+fabric call /absolute/private/fabric-state/fabric.sock get '{"id":"INVOCATION_ID"}'
+fabric call /absolute/private/fabric-state/fabric.sock cancel '{"id":"INVOCATION_ID"}'
+```
+
+Submission returns immediately. Capacity exhaustion rejects unaccepted work;
+there is no implicit queue or retry. Reuse request keys only with unchanged input.
+Status and results are durable in Fabric's SQLite database; Controls remains the
+owner of process state and communications. Results are retained until the owner
+removes the state directory. Do not remove state while work is active.
+
+The service reserves capacity until process termination is confirmed. Completion
+passes through `finishing`; cancellation passes through `cancelling`. On restart,
+Fabric resumes observation of known sessions without relaunching them. An uncertain
+launch becomes `launch_uncertain`, retains its capacity reservation, and is never
+automatically repeated. Inspect the Controls sessions and resolve uncertain work
+before reusing its capacity. Stopping Fabric leaves supervised work with Controls;
+restart with the same state/configuration to reconcile it. Transport failures are
+reported while reconciliation continues. Accepted inputs/contracts remain pinned.

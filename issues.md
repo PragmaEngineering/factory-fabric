@@ -93,7 +93,12 @@ Acceptance:
 
 ## FAB-004 — Add asynchronous invocation and bounded concurrency
 
-- [ ] Complete
+- [x] Complete
+
+Private Rust service, durable invocation records, idempotent submissions, capacity
+rejection, process-confirmed cancellation/completion, and restart reconciliation
+implemented. Three real Controls/PostgreSQL integration scenarios plus unit tests
+and strict clippy pass. Unknown launch outcomes retain capacity and are not retried.
 
 Depends on FAB-003.
 

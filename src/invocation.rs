@@ -38,6 +38,14 @@ pub struct Running {
     pub capability: Capability,
     pub package: Package,
 }
+#[derive(Debug)]
+pub struct LaunchUncertain(pub String);
+impl std::fmt::Display for LaunchUncertain {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+impl std::error::Error for LaunchUncertain {}
 pub struct Executor {
     pub controls: Controls,
     pub comms: Comms,
@@ -112,12 +120,12 @@ impl Executor {
             .to_string_lossy()
             .into_owned()];
         command.extend(package.args.iter().map(|s| s.replace("{prompt}", &prompt)));
-        let session = self.controls.call("POST", "/sessions", Some(&json!({"name":format!("fabric:{id}"),"runner":"command","input_mode":"none","directory":package.working_directory,"command":command,"environment":environment})))?;
+        let session = self.controls.call("POST", "/sessions", Some(&json!({"name":format!("fabric:{id}"),"runner":"command","input_mode":"none","directory":package.working_directory,"command":command,"environment":environment}))).map_err(|e| if e.is::<reqwest::Error>() { anyhow::Error::new(LaunchUncertain(format!("{e:#}"))) } else { e })?;
         Ok(Running {
             id: id.to_string(),
             session_id: session["id"]
                 .as_str()
-                .context("missing session id")?
+                .ok_or_else(|| LaunchUncertain("host returned no session id".into()))?
                 .to_string(),
             thread_id,
             worker_id: worker.participant_id,
