@@ -1,6 +1,6 @@
 # Agent Fabric implementation issues
 
-All issues are planned. Complete acceptance criteria before marking an issue done.
+Issues are tracked below. Complete acceptance criteria before marking an issue done.
 Work in order unless a dependency explicitly permits independent progress.
 
 ## Objective and boundaries
@@ -22,7 +22,12 @@ asynchronously, and communicate directly with agents handling that work.
 
 ## FAB-001 — Run Controls comms and supervision without the workflow engine
 
-- [ ] Complete
+- [x] Complete
+
+Controls commit: `81d0175`. Workflow-free `factory-runtime`, private scope/peer
+provisioning API, existing supervisor API, and messaging isolation. Focused comms,
+sessions, runtimehost, and app tests plus scoped go vet pass. Standalone mode
+requires an explicit PostgreSQL URL; it does not start Hatchet.
 
 Location: primarily `../controls`.
 
