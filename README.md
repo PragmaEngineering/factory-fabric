@@ -27,3 +27,38 @@ pins its version, schemas, and package settings; changes apply to future calls.
 values belong in the environment, never YAML. `overrides` is package-interpreted
 JSON. Invocation and process session states have separate owners: Fabric owns
 invocations, Controls owns sessions. Neither is a workflow step.
+
+## Supervised execution
+
+Start Controls' `factory-runtime` with an explicit PostgreSQL URL (see its
+standalone-runtime.md). Set `controls_socket` in YAML to that host's private
+socket. Then run one capability:
+
+```sh
+cargo run -- run fabric.example.yaml utility echo '{"hello":"world"}' /tmp/fabric-state
+```
+
+The example uses Python 3 and sends its result through Controls comms. A process
+exit or printed JSON is not completion. Every invocation gets private input,
+configuration, prompt, and communication-context files. `FABRIC_CONTEXT_PATH`
+identifies the context, including the result schema and recipient. Packages send
+`fabric.result` with data `{invocation_id, output}` or `{invocation_id, error}`.
+Follow-up messages use the same thread and connection. Credential files are owner
+only. The host supervises commands; Fabric checks the capability result contract.
+
+Initial compatibility: command packages that implement this Fabric completion
+contract. Existing workflow-oriented agent packages must adopt this contract;
+their `step_result` is deliberately rejected. Native Pi profile preparation is
+not implied by raw session launch and remains unsupported here until explicitly
+integrated. Package-owned launchers may prepare their own native configuration.
+
+Run cross-language integration tests with private PostgreSQL and a fresh standalone
+Controls host (from the Controls checkout):
+
+```sh
+go run /path/to/fabric/tests/host/main.go /path/to/fabric
+```
+
+The harness removes its private runtime and stops its processes after testing.
+Ordinary `cargo test` runs offline unit tests; integration tests are explicitly
+marked as requiring this host.

@@ -25,8 +25,7 @@ asynchronously, and communicate directly with agents handling that work.
 - [x] Complete
 
 Controls commit: `81d0175`. Workflow-free `factory-runtime`, private scope/peer
-provisioning API, existing supervisor API, and messaging isolation. Focused comms,
-sessions, runtimehost, and app tests plus scoped go vet pass. Standalone mode
+provisioning API, existing supervisor API, and messaging isolation. Full Controls go test ./... and go vet ./... pass. Standalone mode
 requires an explicit PostgreSQL URL; it does not start Hatchet.
 
 Location: primarily `../controls`.
@@ -69,7 +68,13 @@ Acceptance:
 
 ## FAB-003 — Expose workflow-independent supervised execution
 
-- [ ] Complete
+- [x] Complete
+
+Rust Controls/MCP clients, private invocation context, supervised command launch,
+structured comms completion, schema enforcement, cleanup, and cross-language
+integration harness implemented. Real PostgreSQL/Controls integration tests pass.
+Existing session API needed no change. Native workflow adapters require an explicit
+Fabric completion adapter; raw command integration is supported first.
 
 Depends on FAB-001 and FAB-002. Location: Controls API and Fabric Rust client.
 

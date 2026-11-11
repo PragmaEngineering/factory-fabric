@@ -1,3 +1,3 @@
 #!/bin/sh
-# Deterministic fixture. The invocation protocol is added in FAB-003.
-cat
+set -eu
+exec python3 "$(dirname "$0")/echo.py"

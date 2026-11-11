@@ -1,4 +1,4 @@
-use agent_fabric::config::Config;
+use agent_fabric::{config::Config, invocation::Executor};
 use anyhow::{bail, Result};
 use std::path::Path;
 fn run() -> Result<()> {
@@ -14,7 +14,16 @@ fn run() -> Result<()> {
                 println!("Valid Fabric configuration: {}", config.name);
             }
         }
-        _ => bail!("usage: fabric <validate|catalog> [fabric.yaml]"),
+        Some("run") if args.len() == 6 => {
+            let config = Config::load(Path::new(&args[1]))?;
+            let package = config.packages.iter().find(|p| p.name == args[2]).ok_or_else(|| anyhow::anyhow!("unknown package"))?;
+            let capability = package.capabilities.iter().find(|c| c.name == args[3]).ok_or_else(|| anyhow::anyhow!("unknown capability"))?;
+            let input = serde_json::from_str(&args[4])?;
+            let executor = Executor::new(&config, Path::new(&args[5]))?;
+            let running = executor.launch(&uuid::Uuid::new_v4().to_string(),package,capability,&input,None)?;
+            println!("{}", executor.wait(&running)?);
+        }
+        _ => bail!("usage: fabric <validate|catalog> [fabric.yaml] | fabric run CONFIG PACKAGE CAPABILITY INPUT_JSON STATE_DIR"),
     }
     Ok(())
 }
