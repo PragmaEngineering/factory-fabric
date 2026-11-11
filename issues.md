@@ -46,7 +46,10 @@ Acceptance:
 
 ## FAB-002 — Define contracts, fabric.yaml, and the Rust application
 
-- [ ] Complete
+- [x] Complete
+
+Rust config loader, JSON Schema 2020-12 validation, catalog CLI, example,
+project toolchain, and tests implemented. cargo test and strict clippy pass.
 
 Depends on FAB-001 for final communication boundaries; configuration work may
 proceed independently.
