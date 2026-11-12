@@ -102,7 +102,7 @@ handle those failures without deadlock.
 | running | Implementation active; structured result not yet accepted |
 | finishing | Result/error observed or deadline reached; awaiting supervised termination |
 | cancelling | Cancellation requested; awaiting confirmation |
-| completed | Valid result accepted; supervised termination confirmed where applicable |
+| completed | Valid result accepted; terminal session state reported where applicable |
 | failed | Explicit failure, invalid result, exit without result, or external lease/deadline expiry |
 | cancelled | Supervised termination or external completion acknowledged after cancellation |
 
@@ -129,3 +129,8 @@ implementations own their processes; an expired lease cannot prove they stopped.
 Native workflow-oriented packages need a Fabric-aware launcher and completion
 contract. Controls' workflow Pi preparation is not automatically applied by raw
 session launch. Do not assume factory.yaml runtime settings work unchanged.
+
+The supervisor cannot restore lost PTYs or model memory after its own restart.
+An interrupted session report does not prove an orphaned process stopped. Inspect
+host state before resuming after supervisor loss. See [verification](verification.md)
+for the tested restart boundary and the complete evidence record.

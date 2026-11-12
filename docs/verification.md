@@ -1,0 +1,100 @@
+# Integration verification
+
+Verified on 2026-11-11 in the local development environment.
+
+## Environment
+
+- Fabric: Rust 1.88.0, pinned project toolchain and committed Cargo.lock.
+- Controls: Go 1.26.10; standalone runtime from this checkout.
+- Official MCP TypeScript client: installed Controls workspace dependency.
+- Node.js: 25.8.1; Python 3 for deterministic package fixtures.
+- Native Codex CLI: 0.163.0-alpha.10.2, existing configured model/authentication.
+- PostgreSQL: private temporary instance managed by embedded-postgres v1.34.0.
+
+The harness uses a dedicated database, short temporary Unix socket paths, and
+fresh runtime directories. It configures an invalid Hatchet mode deliberately;
+any accidental workflow-engine initialization fails. No global harness settings,
+production data, or application repositories are modified. Temporary services and
+processes are stopped after testing.
+
+## Reproduce
+
+From Fabric:
+
+```sh
+cargo test
+cargo clippy --all-targets -- -D warnings
+cargo build --release
+```
+
+From Controls, with its Go dependencies and npm workspace dependencies installed:
+
+```sh
+go test ./...
+go vet ./...
+go run /path/to/fabric/tests/host/main.go /path/to/fabric
+```
+
+The last command starts private PostgreSQL and standalone Controls, then explicitly
+runs the Rust integration tests. Ordinary cargo test leaves those host-dependent
+tests ignored. Use an authenticated Codex CLI for the separate native test:
+
+```sh
+FABRIC_TEST_SUITE=native \
+  go run /path/to/fabric/tests/host/main.go /path/to/fabric
+```
+
+The native test uses the existing configured model and credentials. It adds its
+Fabric MCP server through command-line config overrides, runs with a read-only
+sandbox in a temporary directory, and does not persist a Codex session. It sends
+no messages outside the local test services. This command performs model work;
+the deterministic integration suite does not.
+
+## Observed results
+
+All checks below passed:
+
+| Check | Evidence |
+| --- | --- |
+| Unit tests | Configuration, schema rejection, duplicate package rejection, workflow exclusion |
+| Standalone Controls | Scope/identity provisioning, authenticated MCP, sessions, invalid Hatchet mode |
+| concurrent_durable_invocations_and_cancellation | Overlapping session intervals, idempotent calls, conflicting keys, capacity rejection, cancellation, retained results |
+| supervised_completion_and_failures | Structured result, invalid output, launch failure, process exit without completion |
+| deadlines_invalid_output_and_process_failure | Enforced elapsed deadline, stopped process, explicit implementation failure |
+| comms_listener_reconnect_retains_results | Rediscovery after stale listener endpoint; cross-scope membership rejection |
+| live_registration_and_pinned_contracts | Live registration, invocation, contract update during work, ownership checks, withdrawal, lease expiry, retired identity |
+| official_mcp_client_interoperability | Official SDK discovery/invocation/wait, caller isolation, generic tool stability, two-way follow-up messages |
+| service_restart_observes_existing_session | Fabric process killed and restarted; existing supervised call completes without duplicate launch |
+| direct_peer_delegation_permissions_and_capacity | Reviewer invokes specialist, exchanges direct messages, receives result; denied permission and one-slot exhaustion handled without deadlock |
+| native_codex_uses_fabric_mcp | Real Codex session discovers utility.echo, invokes it through MCP, retrieves the completed result, and returns JSON independently verified against Fabric's durable record |
+| Existing Factory regressions | Full Controls go test ./... and go vet ./... |
+| Skill | skill-creator quick_validate.py; skill embedded and provisioned in managed invocations |
+
+Deterministic suite: eight integration scenarios passed. Native suite: one real
+Codex MCP scenario passed. Rust unit tests and strict clippy passed. Both example
+configurations validate. The release binary builds successfully.
+
+## Scope of this evidence
+
+The native test proves the operator-to-MCP-to-supervisor-to-comms-to-result path.
+Reviewer and specialist fixtures exercise actual separate processes and identities
+but deliberately use deterministic implementations; these are protocol tests, not
+evidence of model review quality. Existing native workflow packages still need
+Fabric-aware startup and completion integration.
+
+Restart testing covers Fabric observation recovery while Controls remains active.
+Controls does not transparently restore lost PTYs or model memory after supervisor
+loss. Its interrupted session state is not proof that an orphaned host process
+stopped. Inspect host process state before resuming work after supervisor loss.
+Capacity is based on admitted calls and supervisor-reported state; external peers
+own their processes and resource enforcement.
+
+Unknown launch outcomes remain reserved and are never automatically relaunched;
+manual investigation is required if no session can be recovered. Automatic
+resolution of this ambiguity, remote deployment, process sandboxing, worker pools,
+and a Rust rewrite of comms remain outside this implementation.
+
+Native configuration references:
+[official MCP configuration](https://learn.chatgpt.com/docs/extend/mcp?surface=cli)
+and [non-interactive Codex](https://learn.chatgpt.com/docs/non-interactive-mode).
+The installed CLI help was also checked before running the test.

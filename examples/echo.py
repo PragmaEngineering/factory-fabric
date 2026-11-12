@@ -35,6 +35,8 @@ def main():
         context = json.load(source)
     with open(os.environ["FACTORY_INPUTS_PATH"]) as source:
         output = json.load(source)
+    if output.get("_crash"):
+        raise RuntimeError("injected implementation failure")
     time.sleep(output.get("_delay", 0))
     connection = context["connection"]
     call(connection, "initialize", {"protocolVersion": "2025-03-26", "capabilities": {},

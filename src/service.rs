@@ -135,8 +135,11 @@ impl Service {
     ) -> Result<Invocation> {
         let db = self.db.lock().unwrap();
         let mut v = Self::load(&db, id)?;
+        let before = serde_json::to_value(&v)?;
         change(&mut v);
-        Self::save(&db, &v)?;
+        if serde_json::to_value(&v)? != before {
+            Self::save(&db, &v)?;
+        }
         Ok(v)
     }
     pub fn get(&self, id: &str, caller: &str) -> Result<Invocation> {
@@ -367,7 +370,9 @@ impl Service {
                     id,
                     &launching.package.name,
                 )?;
-                self.update(id, |v| v.assigned_peer = Some(worker.participant_id))?;
+                self.update(id, |v| {
+                    v.assigned_peer = Some(worker.participant_id.clone())
+                })?;
                 match self.executor.launch(
                     id,
                     &launching.package,
@@ -393,6 +398,9 @@ impl Service {
                             .into();
                             v.error = Some(format!("{e:#}; launch was not retried"))
                         })?;
+                        if !e.is::<LaunchUncertain>() {
+                            let _ = self.executor.controls.retire(&worker.participant_id);
+                        }
                     }
                 }
             }

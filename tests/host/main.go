@@ -80,7 +80,8 @@ func run() error {
 	if !ready {
 		return fmt.Errorf("standalone host did not become ready")
 	}
-	test := exec.Command("cargo", "test", "--test", "runtime", "--", "--ignored", "--test-threads=1")
+	suite:=os.Getenv("FABRIC_TEST_SUITE");if suite==""{suite="runtime"}
+ test := exec.Command("cargo", "test", "--test", suite, "--", "--ignored", "--test-threads=1", "--nocapture")
 	test.Dir = os.Args[1]
 	controls, err := os.Getwd()
 	if err != nil {

@@ -492,3 +492,72 @@ fn direct_peer_delegation_permissions_and_capacity() {
         }
     }
 }
+
+#[test]
+#[ignore = "requires private standalone Controls; use tests/host/main.go"]
+fn deadlines_invalid_output_and_process_failure() {
+    use agent_fabric::service::{Request, Service};
+    let mut config = config();
+    config.packages[0].elapsed_seconds = 1;
+    let dir = tempfile::tempdir().unwrap();
+    let service = Service::open(config, dir.path()).unwrap();
+    let caller = service.executor.comms.connection.participant_id.clone();
+    let request = |key: &str, input| Request {
+        request_key: key.into(),
+        package: "utility".into(),
+        capability: "echo".into(),
+        input,
+        working_directory: None,
+        parent_id: None,
+    };
+    let timeout = service
+        .submit(&caller, request("timeout", json!({"_delay":10})))
+        .unwrap();
+    let timeout = await_terminal(&service, &timeout.id, &caller);
+    assert_eq!(timeout.state, "failed");
+    assert!(timeout.error.unwrap().contains("elapsed time"));
+    assert_ne!(
+        service
+            .executor
+            .session(timeout.running.as_ref().unwrap())
+            .unwrap()["state"],
+        "running"
+    );
+    let crash = service
+        .submit(&caller, request("crash", json!({"_crash":true})))
+        .unwrap();
+    let crash = await_terminal(&service, &crash.id, &caller);
+    assert_eq!(crash.state, "failed");
+    assert!(crash.error.unwrap().contains("without accepted result"));
+}
+#[test]
+#[ignore = "requires private standalone Controls; use tests/host/main.go"]
+fn comms_listener_reconnect_retains_results() {
+    use agent_fabric::{
+        controls::{Comms, Controls},
+        invocation::Executor,
+    };
+    let config = config();
+    let dir = tempfile::tempdir().unwrap();
+    let mut executor = Executor::new(&config, dir.path()).unwrap();
+    // Simulate the stale endpoint left by a listener reconnect/rebind. The
+    // private host API remains the authoritative source of the current URL.
+    let mut connection = executor.comms.connection.clone();
+    let current = Comms::new(connection.clone()).unwrap();
+    let thread = current
+        .call(
+            "create_thread",
+            json!({"operation_id":"reconnect-thread","title":"Reconnect","participants":[]}),
+        )
+        .unwrap();
+    connection.url = "http://127.0.0.1:1/mcp".into();
+    executor.comms.connection.url = connection.url;
+    let batch = executor
+        .comms_call("read_messages", json!({"thread_id":thread["thread_id"]}))
+        .unwrap();
+    assert!(batch["messages"].as_array().unwrap().is_empty());
+    let controls = Controls::new(&config.controls_socket).unwrap();
+    let scope = controls.scope("another-fabric").unwrap();
+    let foreign = controls.register(&scope, "foreign", "foreign").unwrap();
+    assert!(current.call("create_thread",json!({"operation_id":"cross-scope","title":"No access","participants":[foreign.participant_id]})).is_err());
+}

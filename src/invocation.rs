@@ -67,6 +67,20 @@ impl Executor {
             root,
         })
     }
+    pub fn comms_call(&self, name: &str, args: Value) -> Result<Value> {
+        match self.comms.call(name, args.clone()) {
+            Err(e) if e.is::<reqwest::Error>() => {
+                let endpoint = self.controls.call("GET", "/comms", None)?;
+                let mut connection = self.comms.connection.clone();
+                connection.url = endpoint["url"]
+                    .as_str()
+                    .context("missing comms endpoint")?
+                    .into();
+                Comms::new(connection)?.call(name, args)
+            }
+            result => result,
+        }
+    }
     pub fn launch(
         &self,
         id: &str,
@@ -81,7 +95,7 @@ impl Executor {
         if let Some(caller) = caller {
             participants.push(caller.to_string());
         }
-        let thread = self.comms.call("create_thread", json!({"operation_id":format!("thread:{id}"),"title":format!("{}.{} {id}",package.name,capability.name),"participants":participants}))?;
+        let thread = self.comms_call("create_thread", json!({"operation_id":format!("thread:{id}"),"title":format!("{id} {}.{}",package.name,capability.name).chars().take(200).collect::<String>(),"participants":participants}))?;
         let thread_id = thread["thread_id"]
             .as_str()
             .context("missing thread id")?
@@ -146,7 +160,7 @@ impl Executor {
         })
     }
     pub fn poll_result(&self, running: &Running, cursor: &mut String) -> Result<Option<Value>> {
-        let batch = self.comms.call(
+        let batch = self.comms_call(
             "read_messages",
             json!({"thread_id":running.thread_id,"after":cursor,"limit":200}),
         )?;

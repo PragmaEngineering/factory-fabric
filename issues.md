@@ -215,7 +215,13 @@ Acceptance:
 
 ## FAB-009 — Verify the complete integration
 
-- [ ] Complete
+- [x] Complete
+
+Eight deterministic integration scenarios and one real Codex MCP smoke test pass.
+Full Controls tests/vet, Rust tests/strict clippy, skill validation, example
+configuration checks, and release build pass. See docs/verification.md for commands,
+versions, observed outcomes, and explicit limitations. Final fault checks also
+corrected stale comms endpoint recovery and definite-launch identity cleanup.
 
 Depends on FAB-001 through FAB-008.
 

@@ -59,7 +59,7 @@ impl Service {
             (old.id, old.mailbox)
         } else {
             let id = uuid::Uuid::new_v4().to_string();
-            let thread=self.executor.comms.call("create_thread",json!({"operation_id":format!("mailbox:{id}"),"title":format!("{} capability inbox",args.name),"participants":[caller]}))?;
+            let thread=self.executor.comms_call("create_thread",json!({"operation_id":format!("mailbox:{id}"),"title":format!("{} capability inbox",args.name),"participants":[caller]}))?;
             (
                 id,
                 thread["thread_id"]
@@ -165,7 +165,7 @@ impl Service {
         let running = if let Some(r) = initial.running {
             r
         } else {
-            let thread=self.executor.comms.call("create_thread",json!({"operation_id":format!("thread:{id}"),"title":format!("{}.{} {id}",initial.package.name,initial.capability.name),"participants":[registration.owner,initial.caller]}))?;
+            let thread=self.executor.comms_call("create_thread",json!({"operation_id":format!("thread:{id}"),"title":format!("{id} {}.{}",initial.package.name,initial.capability.name).chars().take(200).collect::<String>(),"participants":[registration.owner,initial.caller]}))?;
             let running = Running {
                 id: id.into(),
                 session_id: String::new(),
@@ -187,7 +187,7 @@ impl Service {
         };
         let invocation = self.read_internal(id)?;
         if invocation.state != "cancelling" {
-            self.executor.comms.call("send_message",json!({"operation_id":format!("dispatch:{id}"),"thread_id":registration.mailbox,"recipients":[registration.owner],"payload":{"kind":"fabric.invoke","version":1,"parts":[{"kind":"data","data":{"invocation_id":id,"capability":invocation.capability,"input":invocation.request.input,"thread_id":running.thread_id,"result_recipient":self.executor.comms.connection.participant_id}}]}}))?;
+            self.executor.comms_call("send_message",json!({"operation_id":format!("dispatch:{id}"),"thread_id":registration.mailbox,"recipients":[registration.owner],"payload":{"kind":"fabric.invoke","version":1,"parts":[{"kind":"data","data":{"invocation_id":id,"capability":invocation.capability,"input":invocation.request.input,"thread_id":running.thread_id,"result_recipient":self.executor.comms.connection.participant_id}}]}}))?;
         }
         let mut cancel_sent = false;
         loop {
@@ -196,7 +196,7 @@ impl Service {
                 return Ok(());
             }
             if v.state == "cancelling" && !cancel_sent {
-                self.executor.comms.call("send_message",json!({"operation_id":format!("cancel:{id}"),"thread_id":registration.mailbox,"recipients":[registration.owner],"payload":{"kind":"fabric.cancel","version":1,"parts":[{"kind":"data","data":{"invocation_id":id,"thread_id":running.thread_id}}]}}))?;
+                self.executor.comms_call("send_message",json!({"operation_id":format!("cancel:{id}"),"thread_id":registration.mailbox,"recipients":[registration.owner],"payload":{"kind":"fabric.cancel","version":1,"parts":[{"kind":"data","data":{"invocation_id":id,"thread_id":running.thread_id}}]}}))?;
                 cancel_sent = true;
             }
             let mut cursor = v.cursor.clone();
