@@ -124,6 +124,36 @@ impl Executor {
             .as_str()
             .context("missing thread id")?
             .to_string();
+        if package.protocol == "mcp" {
+            let instructions = format!("Execute capability {}.{} version {}. Fetch your assignment with assignment_get; report output or failure with assignment_complete. Use existing communication tools for peer messages.",package.name,capability.name,capability.version);
+            let assignment = json!({"version":1,"id":id,"participant_id":worker.participant_id,"thread_id":thread_id,"recipient":self.comms.connection.participant_id,"mode":"fabric","capability":capability,"input":input,"configuration":package.overrides,"instructions":instructions,"working_directory":package.working_directory,"output_schema":capability.output_schema,"metadata":{"fabric_endpoint":self.fabric_endpoint.clone().or_else(||fs::read(self.root.parent().unwrap().join("endpoint.json")).ok().and_then(|b|serde_json::from_slice::<Value>(&b).ok()).and_then(|v|v["url"].as_str().map(str::to_owned)))}});
+            self.controls
+                .call("POST", "/comms/assignments", Some(&assignment))?;
+            let environment = json!({"AGENT_MCP_URL":worker.url,"AGENT_MCP_TOKEN":worker.token});
+            let mut command = vec![package
+                .path
+                .join(&package.entrypoint)
+                .to_string_lossy()
+                .into_owned()];
+            command.extend(
+                package
+                    .args
+                    .iter()
+                    .map(|s| s.replace("{prompt}", &instructions)),
+            );
+            let session = self.controls.call("POST","/launch",Some(&json!({"session":{"name":format!("fabric:{id}"),"runner":"command","input_mode":"none","directory":package.working_directory,"command":command,"environment":environment},"environment_references":package.environment,"runtime":package.runtime,"package_path":package.path,"configuration":package.overrides,"assignment_id":id}))).map_err(|e|if e.is::<reqwest::Error>() {anyhow::Error::new(LaunchUncertain(format!("{e:#}")))} else {e})?;
+            return Ok(Running {
+                id: id.into(),
+                session_id: session["id"]
+                    .as_str()
+                    .ok_or_else(|| LaunchUncertain("host returned no session id".into()))?
+                    .into(),
+                thread_id,
+                worker_id: worker.participant_id,
+                capability: capability.clone(),
+                package: package.clone(),
+            });
+        }
         let dir = if self.network {
             let prepared = self.controls.call(
                 "POST",

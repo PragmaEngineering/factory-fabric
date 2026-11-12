@@ -356,8 +356,21 @@ impl Service {
         let Some(session) = found else {
             return Ok(None);
         };
-        let path = self.executor.root.join(&v.id).join("context.json");
-        let context: Value = serde_json::from_slice(&fs::read(path)?)?;
+        let context: Value = if v.package.protocol == "mcp" {
+            let worker = v
+                .assigned_peer
+                .as_ref()
+                .context("missing assigned participant")?;
+            let a = self.executor.controls.call(
+                "GET",
+                &format!("/comms/assignments/{worker}"),
+                None,
+            )?;
+            json!({"thread_id":a["thread_id"],"connection":{"participant_id":worker}})
+        } else {
+            let path = self.executor.root.join(&v.id).join("context.json");
+            serde_json::from_slice(&fs::read(path)?)?
+        };
         Ok(Some(Running {
             id: v.id.clone(),
             session_id: session["id"].as_str().context("missing session id")?.into(),
@@ -793,6 +806,9 @@ pub fn serve_until(config: Config, root: &Path, stopped: Arc<AtomicBool>) -> Res
                         .as_str()
                         .context("comms tool name required")?;
                     if ![
+                        "assignment_get",
+                        "assignment_status",
+                        "assignment_complete",
                         "create_thread",
                         "add_participant",
                         "remove_participants",

@@ -212,6 +212,7 @@ impl Config {
                 };
                 if !valid(target)
                     || !valid(source)
+                    || target.starts_with("AGENT_MCP_")
                     || target.starts_with("FABRIC_")
                     || target.starts_with("FACTORY_")
                 {
