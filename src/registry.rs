@@ -149,6 +149,8 @@ impl Service {
             name: r.request.name.clone(),
             path: PathBuf::new(),
             entrypoint: PathBuf::new(),
+            protocol: "legacy".into(),
+            runtime: None,
             args: vec![],
             overrides: BTreeMap::new(),
             environment: BTreeMap::new(),

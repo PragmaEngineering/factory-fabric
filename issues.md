@@ -294,7 +294,7 @@ and commit the completed issue before continuing.
 
 ## FAB-014 — Declare protocol and runtime bootstrap in YAML
 
-- [ ] Complete
+- [x] Complete
 
 Implement in order against `docs/assignment-contract.md`; verify observable behavior
 and commit the completed issue before continuing.

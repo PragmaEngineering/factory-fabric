@@ -41,6 +41,10 @@ pub struct Package {
     pub name: String,
     pub path: PathBuf,
     pub entrypoint: PathBuf,
+    #[serde(default = "legacy_protocol")]
+    pub protocol: String,
+    #[serde(default)]
+    pub runtime: Option<NativeRuntime>,
     #[serde(default)]
     pub args: Vec<String>,
     #[serde(default)]
@@ -55,6 +59,18 @@ pub struct Package {
     #[serde(default)]
     pub allow_delegation: bool,
     pub capabilities: Vec<Capability>,
+}
+fn legacy_protocol() -> String {
+    "legacy".into()
+}
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct NativeRuntime {
+    pub name: String,
+    #[serde(default)]
+    pub version: String,
+    #[serde(default)]
+    pub executable: Option<String>,
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -142,6 +158,15 @@ impl Config {
         }
         let mut packages = BTreeSet::new();
         for p in &mut config.packages {
+            if !["legacy", "mcp"].contains(&p.protocol.as_str()) {
+                bail!("protocol must be legacy or mcp")
+            }
+            if let Some(runtime) = &p.runtime {
+                if runtime.name != "pi" || runtime.version != "=1.0.3" || p.protocol != "mcp" {
+                    bail!("native runtime requires protocol: mcp and pi version =1.0.3")
+                }
+            }
+
             if !identifier(&p.name) || !packages.insert(p.name.clone()) {
                 bail!("invalid or duplicate package name: {}", p.name);
             }
