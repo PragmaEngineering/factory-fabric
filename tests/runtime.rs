@@ -561,3 +561,63 @@ fn comms_listener_reconnect_retains_results() {
     let foreign = controls.register(&scope, "foreign", "foreign").unwrap();
     assert!(current.call("create_thread",json!({"operation_id":"cross-scope","title":"No access","participants":[foreign.participant_id]})).is_err());
 }
+
+#[test]
+#[ignore = "requires standalone Controls and sibling Registry; use tests/host/main.go"]
+fn readiness_uses_assignment_mcp_without_context_files() {
+    let mut config = config();
+    let controls = PathBuf::from(std::env::var("FABRIC_TEST_CONTROLS").unwrap());
+    let registry = controls.parent().unwrap().join("registry");
+    let response = std::fs::read(registry.join("tests/fixtures/readiness-response.json")).unwrap();
+    let provider = tiny_http::Server::http("127.0.0.1:0").unwrap();
+    let endpoint = format!("http://{}", provider.server_addr());
+    let provider_thread = std::thread::spawn(move || {
+        let request = provider
+            .recv_timeout(std::time::Duration::from_secs(20))
+            .unwrap()
+            .unwrap();
+        assert!(request
+            .headers()
+            .iter()
+            .any(|h| h.field.equiv("Authorization")
+                && h.value.as_str() == "Bearer fixture-provider-key"));
+        request
+            .respond(tiny_http::Response::from_data(response).with_header(
+                tiny_http::Header::from_bytes("Content-Type", "application/json").unwrap(),
+            ))
+            .unwrap();
+    });
+    let package = &mut config.packages[0];
+    package.name = "readiness".into();
+    package.protocol = "mcp".into();
+    package.path = registry.join("classifiers/task-readiness");
+    package.entrypoint = "start.sh".into();
+    package.args.clear();
+    package.environment.insert(
+        "OPENROUTER_API_KEY".into(),
+        "FABRIC_TEST_PROVIDER_SECRET".into(),
+    );
+    package.overrides.insert("endpoint".into(), json!(endpoint));
+    package.capabilities.truncate(1);
+    package.capabilities[0].name = "assess".into();
+    let root = tempfile::tempdir().unwrap();
+    let executor = Executor::new(&config, root.path()).unwrap();
+    let running = executor
+        .launch(
+            &uuid::Uuid::new_v4().to_string(),
+            &config.packages[0],
+            &config.packages[0].capabilities[0],
+            &json!({"task":"Investigate gateway latency","context":{"target":"gateway"}}),
+            None,
+        )
+        .unwrap();
+    let output = executor.wait(&running).unwrap();
+    assert_eq!(output["outcome"], "completed");
+    assert_eq!(
+        output["data"]["response"]["answers"]["readiness"]["choice"],
+        "clarify"
+    );
+    assert!(!root.path().join(&running.id).join("context.json").exists());
+    assert!(!root.path().join(&running.id).join("input.json").exists());
+    provider_thread.join().unwrap();
+}

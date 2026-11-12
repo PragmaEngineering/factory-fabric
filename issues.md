@@ -308,7 +308,7 @@ and commit the completed issue before continuing.
 
 ## FAB-016 — Migrate readiness to the shared assignment contract
 
-- [ ] Complete
+- [x] Complete
 
 Implement in order against `docs/assignment-contract.md`; verify observable behavior
 and commit the completed issue before continuing.

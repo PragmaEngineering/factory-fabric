@@ -12,6 +12,7 @@ name: golang
 concurrency: 4
 packages:
 - name: readiness
+  protocol: mcp
   path: ../registry/classifiers/task-readiness
   entrypoint: start.sh
   working_directory: ../controls

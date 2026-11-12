@@ -44,7 +44,7 @@ func run() error {
 	defer db.Stop()
 	runtime := filepath.Join(root, "host")
 	host := exec.Command(binary, "--root", runtime)
-	host.Env = append(os.Environ(), fmt.Sprintf("FACTORY_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:%d/fabric_test?sslmode=disable", port), "FACTORY_HATCHET_MODE=invalid-no-engine")
+	host.Env = append(os.Environ(), fmt.Sprintf("FACTORY_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:%d/fabric_test?sslmode=disable", port), "FACTORY_HATCHET_MODE=invalid-no-engine", "FABRIC_TEST_PROVIDER_SECRET=fixture-provider-key")
 	host.Stderr = os.Stderr
 	if err = host.Start(); err != nil {
 		return err
@@ -80,8 +80,11 @@ func run() error {
 	if !ready {
 		return fmt.Errorf("standalone host did not become ready")
 	}
-	suite:=os.Getenv("FABRIC_TEST_SUITE");if suite==""{suite="runtime"}
- test := exec.Command("cargo", "test", "--test", suite, "--", "--ignored", "--test-threads=1", "--nocapture")
+	suite := os.Getenv("FABRIC_TEST_SUITE")
+	if suite == "" {
+		suite = "runtime"
+	}
+	test := exec.Command("cargo", "test", "--test", suite, "--", "--ignored", "--test-threads=1", "--nocapture")
 	test.Dir = os.Args[1]
 	controls, err := os.Getwd()
 	if err != nil {
