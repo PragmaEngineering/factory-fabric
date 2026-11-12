@@ -192,7 +192,12 @@ Acceptance:
 
 ## FAB-008 — Create the Fabric skill and operator documentation
 
-- [ ] Complete
+- [x] Complete
+
+Reusable skill, operator/package guides, and runnable reviewer/specialist example
+added. The binary embeds and provisions the skill per managed invocation. Skill
+validator, both example configurations, Rust tests, strict clippy, and all six
+integration scenarios pass. Global harness configuration was not modified.
 
 Depends on FAB-006 and FAB-007.
 

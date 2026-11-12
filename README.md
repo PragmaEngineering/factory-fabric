@@ -145,3 +145,8 @@ not automatically cancel children. Capacity applies to every admitted call. If a
 parent occupies the last slot, its child call fails immediately with
 `capacity_exhausted`; there is no hidden queue that can deadlock the parent.
 These are protocol permissions within a trusted host, not host-process isolation.
+
+Read the [operator guide](docs/operations.md), [package contract](docs/packages.md),
+and reusable [Fabric skill](skills/fabric/SKILL.md). The skill is embedded in the
+binary and provisioned for every managed invocation; native launchers decide how
+to load it into their harness.

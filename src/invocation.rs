@@ -94,8 +94,19 @@ impl Executor {
             &serde_json::to_vec(&package.overrides)?,
         )?;
         let prompt = format!("Execute capability {}.{} version {} with input at {}. Read FABRIC_CONTEXT_PATH for the communication connection and output schema. Report completion through send_message with payload kind fabric.result, version 1, one data part containing invocation_id and output, addressed to the result_recipient. Use a new operation_id for new content. Process exit alone is not completion.", package.name, capability.name, capability.version, dir.join("input.json").display());
+        let skill_dir = dir.join("skills/fabric");
+        private_dir(&skill_dir)?;
+        let skill_path = skill_dir.join("SKILL.md");
+        private_file(
+            &skill_path,
+            include_str!("../skills/fabric/SKILL.md").as_bytes(),
+        )?;
+        let prompt = format!(
+            "Read the Fabric skill at {}. {prompt}",
+            skill_path.display()
+        );
         private_file(&dir.join("prompt.txt"), prompt.as_bytes())?;
-        let context = json!({"invocation_id":id,"capability":capability,"connection":worker,"thread_id":thread_id,"result_recipient":self.comms.connection.participant_id,"fabric_socket":self.root.parent().unwrap().join("fabric.sock")});
+        let context = json!({"invocation_id":id,"capability":capability,"connection":worker,"thread_id":thread_id,"result_recipient":self.comms.connection.participant_id,"fabric_socket":self.root.parent().unwrap().join("fabric.sock"),"skill_path":skill_path});
         private_file(&dir.join("context.json"), &serde_json::to_vec(&context)?)?;
         let mut environment = BTreeMap::new();
         for (target, source) in &package.environment {
@@ -107,6 +118,7 @@ impl Executor {
         }
         for (key, value) in [
             ("FABRIC_CONTEXT_PATH", dir.join("context.json")),
+            ("FABRIC_SKILL_PATH", skill_path),
             ("FACTORY_INPUTS_PATH", dir.join("input.json")),
             ("FACTORY_PACKAGE_CONFIG", dir.join("config.json")),
             ("FACTORY_PROMPT_PATH", dir.join("prompt.txt")),
