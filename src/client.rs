@@ -56,6 +56,27 @@ impl Client {
         };
         Ok(Self { host, connection })
     }
+    pub fn from_assignment(endpoint: &str) -> Result<Self> {
+        let url =
+            std::env::var("AGENT_MCP_URL").context("assigned adapter requires AGENT_MCP_URL")?;
+        let token = std::env::var("AGENT_MCP_TOKEN")
+            .context("assigned adapter requires AGENT_MCP_TOKEN")?;
+        let mut connection = Connection {
+            url,
+            token,
+            participant_id: String::new(),
+        };
+        let assignment =
+            crate::controls::Comms::new(connection.clone())?.call("assignment_get", json!({}))?;
+        connection.participant_id = assignment["participant_id"]
+            .as_str()
+            .context("assignment missing participant")?
+            .into();
+        Ok(Self {
+            host: Controls::connect(endpoint, &connection.token)?,
+            connection,
+        })
+    }
     pub fn call(&self, method: &str, params: Value) -> Result<Value> {
         let response = self.host.call(
             "POST",

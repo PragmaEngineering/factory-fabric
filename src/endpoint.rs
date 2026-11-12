@@ -8,7 +8,8 @@ pub fn resolve(value: &str) -> Result<String> {
     if path.extension().is_some_and(|e| e == "json") {
         let record: serde_json::Value = serde_json::from_slice(&std::fs::read(path)?)?;
         if let Some(token_file) = record["token_file"].as_str() {
-            if std::env::var_os("FABRIC_CONTEXT_PATH").is_none()
+            if std::env::var_os("AGENT_MCP_URL").is_none()
+                && std::env::var_os("FABRIC_CONTEXT_PATH").is_none()
                 && std::env::var_os("FABRIC_TOKEN").is_none()
             {
                 std::env::set_var(

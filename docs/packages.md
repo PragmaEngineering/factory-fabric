@@ -8,6 +8,36 @@ variable names to execution-host environment variable names. Provider credential
 the environment; `overrides` is package-interpreted configuration, never a place
 for literal secrets. Host processes retain the host user's privileges.
 
+## MCP assignment mode
+
+Declare `protocol: mcp`. The process receives only its scoped connection bootstrap,
+`AGENT_MCP_URL` and `AGENT_MCP_TOKEN`. These are supplied by the host, not manually
+maintained per-invocation settings. `assignment_get` supplies input, configuration,
+instructions, identity/thread, working/output directories, and the pinned output
+schema. `assignment_status` reports running/waiting; `assignment_complete` accepts
+one output or error and returns a durable receipt. The same contract is used by
+Factory and Fabric. Agents do not choose a workflow-specific completion payload.
+
+For native Pi packages, declare `runtime: {name: pi, version: '=1.0.3'}`. Controls
+uses its existing adapter to check the executable, create the native private
+profile, and apply YAML provider/model overrides. The shared Pi bridge loads the
+assignment through MCP and configures communication tools. No generated input,
+prompt or context files are required. Native profile files are harness artifacts,
+not a second assignment contract. `runtime.executable` can explicitly select the
+installed native executable. Tools and package source must exist on the host.
+
+`allow_delegation: true` permits child calls. The runtime configures the Fabric
+MCP adapter with `--assigned`, using the same scoped identity and API assignment
+rather than context files or an operator credential. Install the Fabric binary on
+the execution host when enabling that adapter. Parent/root attribution and capacity
+rules are unchanged.
+
+## Legacy compatibility
+
+`protocol: legacy` retains the old invocation files and `fabric.result` completion
+contract below. Omitted protocol remains legacy for existing manifests and stored
+invocations. New packages should declare MCP explicitly.
+
 The private invocation directory contains input.json, config.json, prompt.txt,
 context.json, and the embedded Fabric skill. Standard paths are passed through
 `FACTORY_INPUTS_PATH`, `FACTORY_PACKAGE_CONFIG`, `FACTORY_PROMPT_PATH`, and
@@ -20,8 +50,7 @@ A native runner can configure a stdio MCP entry with the Fabric binary and args
 `["mcp", context.fabric_endpoint, "--context", FABRIC_CONTEXT_PATH]`. Append the
 provided prompt and load the provisioned skill using that runner's supported
 mechanisms. The package owns this native configuration; the supervisor only
-launches the prepared command. Existing Registry packages that expect workflow
-step_result messages must adapt before use here.
+launches the prepared command. Registry Go packages now declare MCP mode and do not use this compatibility path.
 
 Return through Controls send_message with payload kind `fabric.result`, version 1,
 and a data part `{invocation_id, output}` or `{invocation_id, error}`. Address the

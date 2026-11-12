@@ -315,7 +315,16 @@ and commit the completed issue before continuing.
 
 ## FAB-017 — Migrate native agents and simplify operation
 
-- [ ] Complete
+- [x] Complete
 
 Implement in order against `docs/assignment-contract.md`; verify observable behavior
 and commit the completed issue before continuing.
+
+Migration verification: ten Fabric integrations, real readiness through Factory
+and Fabric, native Registry launch/profile override checks with a model-free Pi
+fixture, HTTPS readiness and child delegation with parent attribution, local
+startup/restart/shutdown, full Controls tests/vet, Rust tests/strict clippy, fifteen
+Pi adapter tests, thirty-three Registry tests (one optional installed-Pi check
+skipped), demo validation, and skill validation. No paid provider calls were made.
+All Go demo packages now declare MCP mode. Restart deployed services and reconnect
+the MCP adapter to load the updated binaries and manifest.

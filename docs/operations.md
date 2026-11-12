@@ -64,19 +64,25 @@ relative registry paths and preserves the factory's provider overrides. The defa
 working directory is the sibling Controls Go checkout; change it for your project.
 Inspect it with `bin/fabric catalog fabric.demo.yaml`.
 
-These are native registry launchers, not the deterministic fixtures. They still
-need Fabric MCP/completion integration before successful structured invocation.
-The readiness launcher currently requires Factory workflow runtime variables;
-Pi agents retain native profiles, and Fabric does not apply Factory's Pi preparer
-or translate its provider overrides. No workflow, approval gates, or worktree hooks
-are imported. Use `fabric.collaboration.yaml` for the runnable collaboration demo.
+All five packages now use `protocol: mcp`. Readiness fetches its assignment and
+returns its assessment through the shared API. The four Pi agents additionally
+declare their pinned native runtime; Controls applies the provider overrides and
+prepares their native profiles. Install the registry dependencies and declared
+runtime/tools on the execution host and supply the referenced provider credential.
+No per-assignment environment or context-file setup is needed.
+
+No workflow, approval gates, or worktree hooks are imported. Use
+`fabric.collaboration.yaml` for the deterministic collaboration fixture.
+After upgrading the binaries, restart the running Fabric stack to load both the
+new Controls MCP operations and the updated package declarations.
 
 ## Separate machines
 
 Controls, Fabric, and the coding harness can run on separate machines. Connect
 using HTTPS endpoints and bearer credentials; see [network deployment](network.md).
 Package paths and environment references belong to the Controls execution host.
-Invocation inputs, context, prompts, and skills are transferred through its API.
+MCP-mode invocation data is retrieved through the authenticated assignment API.
+Legacy packages retain file staging as a compatibility path.
 Packages themselves must be installed on that host.
 
 `fabric up` with `controls_endpoint` connects to that host and starts only Fabric.

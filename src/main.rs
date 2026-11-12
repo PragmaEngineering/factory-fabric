@@ -7,7 +7,7 @@ const USAGE: &str = "Usage:
   fabric catalog [fabric.yaml]                  Inspect configured capabilities offline
   fabric serve CONFIG STATE_DIR                Run the asynchronous service
   fabric call [ENDPOINT] METHOD ARGUMENTS_JSON     Call as the local CLI identity
-  fabric mcp [ENDPOINT] [--identity NAME | --context PATH]
+  fabric mcp [ENDPOINT] [--identity NAME | --context PATH | --assigned]
 
 Defaults read .fabric/endpoint.json in the current directory. See docs/operations.md.";
 fn run() -> Result<()> {
@@ -47,7 +47,9 @@ fn run() -> Result<()> {
         }
         Some("call") if args.len() == 4 => {
             let endpoint = agent_fabric::endpoint::resolve(&args[1])?;
-            let client = if let Ok(path) = std::env::var("FABRIC_CONTEXT_PATH") {
+            let client = if std::env::var_os("AGENT_MCP_URL").is_some() {
+                agent_fabric::client::Client::from_assignment(&endpoint)?
+            } else if let Ok(path) = std::env::var("FABRIC_CONTEXT_PATH") {
                 agent_fabric::client::Client::from_context_endpoint(&endpoint, Path::new(&path))?
             } else {
                 agent_fabric::client::Client::attach_endpoint(&endpoint, "cli")?
@@ -57,9 +59,15 @@ fn run() -> Result<()> {
                 client.call(&args[2], serde_json::from_str(&args[3])?)?
             );
         }
-        Some("mcp") if args.len() == 2 || args.len() == 4 => {
+        Some("mcp")
+            if args.len() == 2
+                || args.len() == 4
+                || (args.len() == 3 && args[2] == "--assigned") =>
+        {
             let endpoint = agent_fabric::endpoint::resolve(&args[1])?;
-            let client = if args.get(2).is_some_and(|a| a == "--context") {
+            let client = if args.get(2).is_some_and(|a| a == "--assigned") {
+                agent_fabric::client::Client::from_assignment(&endpoint)?
+            } else if args.get(2).is_some_and(|a| a == "--context") {
                 agent_fabric::client::Client::from_context_endpoint(&endpoint, Path::new(&args[3]))?
             } else if args.get(2).is_some_and(|a| a == "--identity") {
                 agent_fabric::client::Client::attach_endpoint(&endpoint, &args[3])?
@@ -69,7 +77,7 @@ fn run() -> Result<()> {
                     &format!("session-{}", uuid::Uuid::new_v4()),
                 )?
             } else {
-                bail!("usage: fabric mcp ENDPOINT [--identity NAME | --context PATH]")
+                bail!("usage: fabric mcp ENDPOINT [--identity NAME | --context PATH | --assigned]")
             };
             agent_fabric::mcp::serve(client)?;
         }

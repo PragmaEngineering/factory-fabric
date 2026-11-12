@@ -6,5 +6,6 @@ controls=${CONTROLS_SOURCE:-"$root/../controls"}
 mkdir -p "$root/bin"
 (cd "$controls" && go build -o "$root/bin/factory-runtime" ./cmd/factory-runtime)
 (cd "$root" && cargo build --release)
-cp "$root/target/release/fabric" "$root/bin/fabric"
+cp "$root/target/release/fabric" "$root/bin/fabric.next"
+mv -f "$root/bin/fabric.next" "$root/bin/fabric"
 printf 'Ready. From %s run: bin/fabric up fabric.example.yaml\n' "$root"

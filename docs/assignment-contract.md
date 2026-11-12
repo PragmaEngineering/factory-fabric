@@ -68,7 +68,7 @@ One supervised invocation owns one assignment; connected capability registration
 and renewable mailbox leases remain Fabric's existing API. No new worker queue.
 
 The common completion operation hides the owner-specific result effect. Factory
-maps its output to the existing validated step result (or a failed result);
+maps its output to the existing validated step result (or records a runtime failure);
 Fabric maps output/error to its existing pinned invocation. Internal message kinds
 can remain compatible during migration, but agents never need to choose them or
 discover a controller participant. The existing message API remains available for

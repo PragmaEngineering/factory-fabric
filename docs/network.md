@@ -90,8 +90,9 @@ fabric serve /etc/fabric/fabric.yaml /var/lib/fabric
 
 Point Fabric's HTTPS proxy at `127.0.0.1:7332`. The configured `fabric_endpoint`
 must be reachable from the execution host, allowing peer delegation and follow-up
-calls without the operator coordinating them. Fabric stages each invocation's
-files through Controls' workspace API and launches via its existing supervisor.
+calls without the operator coordinating them. MCP-mode agents retrieve assignments through Controls' authenticated MCP API.
+The workspace-file API remains for explicit legacy packages; execution still uses
+the existing supervisor.
 Fabric's SQLite history remains on the Fabric machine; communication/session
 records and invocation files remain on Controls.
 
@@ -124,3 +125,8 @@ An active invocation pinned before transport migration may retain an old socket
 context; finish that work before switching deployments. Changing the configured
 Controls endpoint requires a new Fabric state directory unless it is the managed
 local identity. Persisted calls are not silently moved to another execution host.
+
+New packages should declare `protocol: mcp`; native Pi packages also declare
+`runtime: {name: pi, version: '=1.0.3'}`. Node agents using private CAs need a
+configured trust root (for example `NODE_EXTRA_CA_CERTS` in their execution-host
+service environment). Standard public CA certificates need no custom trust setup.

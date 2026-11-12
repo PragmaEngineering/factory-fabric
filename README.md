@@ -49,7 +49,8 @@ identity and permission, with parent/root attribution.
 
 This is not full factory.yaml compatibility. Workflow routes, hooks, variables,
 native workflow-runtime requirements, and declarative loops are not supported.
-Existing workflow-oriented packages need a Fabric-aware completion contract.
+Registry Go packages use the shared `protocol: mcp` assignment contract. Other
+legacy packages can opt into it through the shared SDK.
 Connected implementations register with renewable leases and use comms mailboxes;
 they own their processes and resource enforcement. Local host execution is trusted
 and is not a sandbox. See the guides for recovery and supervisor-loss limitations.

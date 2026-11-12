@@ -3,9 +3,9 @@
 # working_directory selects the Go Controls checkout; change it for your project
 # or supply an execution-host working_directory when invoking a capability.
 # Registry launchers retain their native Pi profiles and linked skills.
-# NOTE: these launchers still need Fabric MCP/result integration before these
-# capabilities can complete Fabric invocations. runtime: pi and workflow routes,
-# hooks, admission gates, and worktree management are deliberately not copied.
+# All packages use the shared assignment MCP contract; Pi preparation is selected
+# explicitly below. Workflow routes, hooks, admission gates and worktree management
+# remain Factory concerns and are not copied.
 # For an executable deterministic collaboration demo, use fabric.collaboration.yaml.
 version: 1
 name: golang
@@ -45,11 +45,10 @@ packages:
     output_schema:
       type: object
 - name: architect
+  protocol: mcp
+  runtime: {name: pi, version: "=1.0.3"}
   path: ../registry/agents/architect
   entrypoint: start.sh
-  args:
-  - -p
-  - '{prompt}'
   working_directory: ../controls
   elapsed_seconds: 1800
   environment:
@@ -89,11 +88,10 @@ packages:
     output_schema:
       type: object
 - name: architecture_reviewer
+  protocol: mcp
+  runtime: {name: pi, version: "=1.0.3"}
   path: ../registry/agents/architecture_reviewer
   entrypoint: start.sh
-  args:
-  - -p
-  - '{prompt}'
   working_directory: ../controls
   elapsed_seconds: 1800
   environment:
@@ -133,11 +131,10 @@ packages:
     output_schema:
       type: object
 - name: coder_golang
+  protocol: mcp
+  runtime: {name: pi, version: "=1.0.3"}
   path: ../registry/agents/coder_golang
   entrypoint: start.sh
-  args:
-  - -p
-  - '{prompt}'
   working_directory: ../controls
   elapsed_seconds: 1800
   environment:
@@ -177,11 +174,10 @@ packages:
     output_schema:
       type: object
 - name: code_reviewer_golang
+  protocol: mcp
+  runtime: {name: pi, version: "=1.0.3"}
   path: ../registry/agents/code_reviewer_golang
   entrypoint: start.sh
-  args:
-  - -p
-  - '{prompt}'
   working_directory: ../controls
   elapsed_seconds: 1800
   environment:

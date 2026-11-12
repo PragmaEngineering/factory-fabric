@@ -61,32 +61,26 @@ Do not change shared repository state merely because another invocation is activ
 
 ## When implementing an assigned capability
 
-If `FABRIC_CONTEXT_PATH` is supplied, read that private JSON context and the input
-at `FACTORY_INPUTS_PATH`. Use its connection and assigned thread. A native harness
-can connect through `fabric mcp ENDPOINT --context CONTEXT_PATH`; use
-`context.fabric_endpoint`. Execution paths and environment references belong to the
-Controls execution host; do not assume shared filesystems. Keep credential contents out of prompts, output, and logs.
+Use the runtime-provisioned communication MCP connection. Read your assignment
+with `assignment_get`: it contains the input, configuration, instructions, thread,
+identity, and output schema. Report running/waiting through `assignment_status`
+when useful. Complete with `assignment_complete`, supplying exactly one `output`
+matching the assigned schema or a factual `error`. Wait for `state: accepted`.
+Do not discover a controller or construct owner-specific completion payloads.
+Printed JSON, an idle turn, and process exit do not complete an assignment.
 
-Send completion through `comms_send_message`, addressed to `result_recipient`,
-with a new `operation_id` and this payload:
+Programs use only `AGENT_MCP_URL` and `AGENT_MCP_TOKEN` to bootstrap the scoped
+connection; native runtimes configure that MCP connection automatically. Keep
+credentials out of prompts, output, and logs. Working and output directories refer
+to the execution host, not necessarily the operator's machine.
 
-```json
-{
-  "kind": "fabric.result",
-  "version": 1,
-  "parts": [{
-    "kind": "data",
-    "data": {"invocation_id": "ASSIGNED_ID", "output": {}}
-  }]
-}
-```
-
-Replace `output` with a value matching the assigned output schema. For a failure,
-use `error` instead of `output`, with a factual explanation. Wait for the comms
-receipt. Printed JSON, process exit, and a workflow `step_result` do not complete
-Fabric work. Reserved workflow control payloads are unavailable to Fabric peers.
-
-If delegation is enabled, invoke specialists using this same identity. Fabric
+If delegation is enabled, the native runtime can expose Fabric through
+`fabric mcp ENDPOINT --assigned`, reusing this same participant identity. Fabric
 infers managed workers' parent; connected implementations supply `parent_id`.
-Exchange follow-up messages directly. A permission denial is a boundary: report
-it or continue within scope; do not attach as an operator to bypass it.
+Resolve required child work before completing. A permission denial is a boundary:
+report it or continue within scope; never attach as an operator to bypass it.
+
+Legacy packages explicitly use the file/context and `fabric.result` compatibility
+contract described in the package documentation. Existing connected lease/mailbox
+implementations retain their advertised completion contract. Inspect that contract
+rather than applying workflow payloads to a Fabric peer.

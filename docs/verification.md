@@ -120,3 +120,20 @@ and filesystem ownership boundaries using isolated directories on one machine.
 `remote_paths_belong_to_the_execution_host` separately verifies that configurations
 can refer to paths absent from the Fabric machine. Local lifecycle tests use
 authenticated TCP and check that PostgreSQL stops with the managed stack.
+
+## Shared assignment migration (FAB-012 through FAB-017)
+
+The integration harness now runs ten cases, including the real Registry readiness
+program over assignment MCP and a real architect launcher with YAML-selected Pi
+preparation. The native protocol fixture is model-free: it verifies profile/model
+selection, assignment lookup and completion without making a paid model call.
+Controls also runs readiness through its actual Factory command runner, checking
+that legacy input/config/prompt files are absent. Registry tests preserve its
+legacy replay behavior and verify common output/error handling.
+
+The separate-service HTTPS test additionally covers MCP-only readiness and a
+native worker delegating a child through `fabric mcp --assigned`, preserving
+parent identity without an operator credential or context file. Pure protocol
+tests cover ownership rejection, output validation, immutable provisioning,
+unchanged completion replay, conflicting completion rejection and Factory errors.
+Native Pi adapter tests cover both common assignment MCP and legacy delivery.

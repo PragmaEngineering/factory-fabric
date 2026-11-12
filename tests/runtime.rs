@@ -621,3 +621,45 @@ fn readiness_uses_assignment_mcp_without_context_files() {
     assert!(!root.path().join(&running.id).join("input.json").exists());
     provider_thread.join().unwrap();
 }
+
+#[test]
+#[ignore = "requires Controls and Registry; use tests/host/main.go"]
+fn native_registry_agent_uses_assignment_mcp_and_yaml_runtime() {
+    use agent_fabric::config::NativeRuntime;
+    let mut config = config();
+    let controls = PathBuf::from(std::env::var("FABRIC_TEST_CONTROLS").unwrap());
+    let package = &mut config.packages[0];
+    package.name = "architect".into();
+    package.protocol = "mcp".into();
+    package.path = controls.parent().unwrap().join("registry/agents/architect");
+    package.entrypoint = "start.sh".into();
+    package.args.clear();
+    package.runtime = Some(NativeRuntime {
+        name: "pi".into(),
+        version: "=1.0.3".into(),
+        executable: Some(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/pi-assignment.mjs")
+                .to_string_lossy()
+                .into_owned(),
+        ),
+    });
+    package.overrides=serde_json::from_value(json!({"provider":"fixture","model":"fixture-model","base_url":"https://provider.example/v1","api":"openai-completions","api_key_env":"FABRIC_TEST_PROVIDER_SECRET","thinking":"medium","model_config":{"name":"Fixture","reasoning":true,"context_window":32000,"max_tokens":4000,"input":["text"],"cost":{"input":0,"output":0,"cache_read":0,"cache_write":0}}})).unwrap();
+    let root = tempfile::tempdir().unwrap();
+    let executor = Executor::new(&config, root.path()).unwrap();
+    let package = &config.packages[0];
+    let running = executor
+        .launch(
+            &uuid::Uuid::new_v4().to_string(),
+            package,
+            &package.capabilities[0],
+            &json!({"task":"inspect without a model"}),
+            None,
+        )
+        .unwrap();
+    let result = executor.wait(&running).unwrap();
+    assert_eq!(result["provider"], "fixture");
+    assert_eq!(result["model"], "fixture-model");
+    assert_eq!(result["input"]["task"], "inspect without a model");
+    assert!(!root.path().join(&running.id).join("context.json").exists());
+}

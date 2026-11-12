@@ -75,7 +75,7 @@ with tempfile.TemporaryDirectory(prefix="fab-net-", dir="/tmp") as directory, co
     host_token, fabric_token = "host-"+os.urandom(32).hex(), "operator-"+os.urandom(32).hex()
     (host / "token").write_text(host_token)
     (operator / "token").write_text(fabric_token)
-    env = {**os.environ, "CONTROLS_TOKEN":host_token, "FABRIC_TOKEN":fabric_token, "FABRIC_CA_CERT":str(cert), "SSL_CERT_FILE":str(cert), "PATH":str(REPO/"bin")+os.pathsep+os.environ["PATH"]}
+    env = {**os.environ, "CONTROLS_TOKEN":host_token, "FABRIC_TOKEN":fabric_token, "FABRIC_CA_CERT":str(cert), "SSL_CERT_FILE":str(cert), "NODE_EXTRA_CA_CERTS":str(cert), "PATH":str(REPO/"bin")+os.pathsep+os.environ["PATH"]}
     host_env = {**env, "FABRIC_TEST_SECRET":"execution-host"}
     # Model independent packages are installed only as execution-host packages.
     shutil.copytree(REPO/"examples",host/"packages")
@@ -84,6 +84,16 @@ with tempfile.TemporaryDirectory(prefix="fab-net-", dir="/tmp") as directory, co
         config["packages"].append({"name":name,"path":str(host/"packages"),"entrypoint":entry,"args":args,"working_directory":str(host),"allow_delegation":delegation,"environment":{"HOST_VALUE":"FABRIC_TEST_SECRET"},"capabilities":[{"name":capability,"description":"network fixture","version":"1","input_schema":{"type":"object"},"output_schema":{"type":"object"}}]})
     # Include the schema used by the shared official MCP test.
     config["packages"][0]["capabilities"].append({"name":"inspect","description":"inspect","version":"1","input_schema":{"type":"object","required":["task"]},"output_schema":{"type":"object"}})
+    class Provider(http.server.BaseHTTPRequestHandler):
+        def log_message(self,*_): pass
+        def do_POST(self):
+            body=(REPO.parent/"registry/tests/fixtures/readiness-response.json").read_bytes()
+            self.send_response(200);self.send_header("Content-Type","application/json");self.send_header("Content-Length",str(len(body)));self.end_headers();self.wfile.write(body)
+    provider=http.server.ThreadingHTTPServer(("127.0.0.1",0),Provider)
+    threading.Thread(target=provider.serve_forever,daemon=True).start()
+    cleanup.callback(provider.server_close);cleanup.callback(provider.shutdown)
+    config["packages"].append({"name":"readiness","protocol":"mcp","path":str(REPO.parent/"registry/classifiers/task-readiness"),"entrypoint":"start.sh","working_directory":str(host),"environment":{"OPENROUTER_API_KEY":"FABRIC_TEST_SECRET"},"overrides":{"endpoint":f"http://127.0.0.1:{provider.server_port}"},"capabilities":[{"name":"assess","description":"Readiness fixture","version":"1","input_schema":{"type":"object"},"output_schema":{"type":"object"}}]})
+    config["packages"].append({"name":"architect","protocol":"mcp","runtime":{"name":"pi","version":"=1.0.3","executable":str(REPO/"tests/fixtures/pi-assignment.mjs")},"allow_delegation":True,"path":str(REPO.parent/"registry/agents/architect"),"entrypoint":"start.sh","working_directory":str(host),"overrides":{"provider":"fixture","model":"fixture-model","base_url":"https://provider.example/v1","api":"openai-completions","api_key_env":"FABRIC_TEST_SECRET","thinking":"medium","model_config":{"name":"Fixture","reasoning":True,"context_window":32000,"max_tokens":4000,"input":["text"],"cost":{"input":0,"output":0,"cache_read":0,"cache_write":0}}},"capabilities":[{"name":"design","description":"Native protocol fixture","version":"1","input_schema":{"type":"object"},"output_schema":{"type":"object"}}]})
     path = operator / "fabric.yaml"
     path.write_text(json.dumps(config))
     processes = []
@@ -122,7 +132,7 @@ with tempfile.TemporaryDirectory(prefix="fab-net-", dir="/tmp") as directory, co
         return json.loads(subprocess.check_output([str(BINARY),"call",fabric_url,method,json.dumps(arguments)],env=fabric_env,stderr=subprocess.PIPE,timeout=45))
     deadline=time.monotonic()+30
     while True:
-        assert fabric.poll() is None,(root/"process-1.log").read_text()
+        assert fabric.poll() is None,(fabric.returncode,(root/"process-1.log").read_text())
         try: call("catalog",{});break
         except subprocess.CalledProcessError:
             assert time.monotonic()<deadline,"Fabric startup timeout"
@@ -148,5 +158,16 @@ with tempfile.TemporaryDirectory(prefix="fab-net-", dir="/tmp") as directory, co
     reviewed=call("wait",{"id":review["id"],"seconds":20})
     assert reviewed["state"]=="completed",reviewed
     assert reviewed["output"]["specialist"]["finding"]=="reviewed",reviewed
+    readiness=call("invoke",{"request_key":"shared-readiness","package":"readiness","capability":"assess","input":{"task":"Investigate gateway latency"}})
+    ready=call("wait",{"id":readiness["id"],"seconds":20})
+    assert ready["state"]=="completed",ready
+    assert ready["output"]["data"]["response"]["answers"]["readiness"]["choice"]=="clarify",ready
+    assert not (host/"runtime/workspaces"/readiness["id"]).exists()
+    native=call("invoke",{"request_key":"shared-native","package":"architect","capability":"design","input":{"task":"Inspect","delegate":True}})
+    native_result=call("wait",{"id":native["id"],"seconds":25})
+    assert native_result["state"]=="completed",native_result
+    assert native_result["output"]["child"]["finding"]=="delegated via assignment",native_result
+    child=call("get",{"id":native_result["output"]["child_id"]})
+    assert child["parent_id"]==native["id"],child
     subprocess.run(["node",str(REPO/"tests/mcp-client.mjs"),str(BINARY),fabric_url],env={**fabric_env,"FABRIC_TEST_CONTROLS":str(REPO.parent/"controls")},check=True,timeout=90)
     print("PASS: separate services over verified HTTPS, host-side staging/environment, peer delegation, auth isolation, official MCP interoperability")
