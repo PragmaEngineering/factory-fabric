@@ -277,3 +277,45 @@ Verification: separate-service HTTPS integration (including official MCP SDK and
 peer delegation), managed local lifecycle/restart, all eight existing runtime
 integrations, Rust tests/clippy, full Controls tests/vet, focused network auth and
 workspace tests, and skill validation. See `docs/network.md`.
+
+## FAB-012 — Audit agent invocation boundaries
+
+- [x] Complete
+
+Audit recorded in `docs/assignment-contract.md`; existing comms identity, messages,
+supervision, registry leases, and workflow effects are retained.
+
+## FAB-013 — Specify one agent-facing MCP assignment contract
+
+- [ ] Complete
+
+Implement in order against `docs/assignment-contract.md`; verify observable behavior
+and commit the completed issue before continuing.
+
+## FAB-014 — Declare protocol and runtime bootstrap in YAML
+
+- [ ] Complete
+
+Implement in order against `docs/assignment-contract.md`; verify observable behavior
+and commit the completed issue before continuing.
+
+## FAB-015 — Implement shared Controls assignment MCP and SDK
+
+- [ ] Complete
+
+Implement in order against `docs/assignment-contract.md`; verify observable behavior
+and commit the completed issue before continuing.
+
+## FAB-016 — Migrate readiness to the shared assignment contract
+
+- [ ] Complete
+
+Implement in order against `docs/assignment-contract.md`; verify observable behavior
+and commit the completed issue before continuing.
+
+## FAB-017 — Migrate native agents and simplify operation
+
+- [ ] Complete
+
+Implement in order against `docs/assignment-contract.md`; verify observable behavior
+and commit the completed issue before continuing.
