@@ -16,7 +16,7 @@ pub fn tools(client: &Client) -> Result<Vec<Value>> {
     let mut tools=vec![
         tool("agents_list","Discover configured and connected capabilities, contracts and availability.",object(json!({}),&[])),
         tool("agents_describe","Inspect a package's capability contracts before invoking.",object(json!({"package":{"type":"string"},"capability":{"type":"string"}}),&["package"])),
-        tool("agents_invoke","Submit structured work asynchronously. Reuse request_key only for unchanged retries. Capacity exhaustion rejects unaccepted work.",object(json!({"request_key":{"type":"string","minLength":1,"maxLength":128},"package":{"type":"string"},"capability":{"type":"string"},"input":{},"working_directory":{"type":"string"}}),&["request_key","package","capability","input"])),
+        tool("agents_invoke","Submit structured work asynchronously. Reuse request_key only for unchanged retries. Capacity exhaustion rejects unaccepted work.",object(json!({"request_key":{"type":"string","minLength":1,"maxLength":128},"package":{"type":"string"},"capability":{"type":"string"},"input":{},"working_directory":{"type":"string"},"parent_id":{"type":"string"}}),&["request_key","package","capability","input"])),
         tool("invocations_get","Retrieve invocation status and a validated result when complete.",id.clone()),
         tool("invocations_cancel","Request cancellation; inspect status for confirmation.",id),
         tool("invocations_wait","Wait up to 30 seconds for a terminal result; returns current status on timeout.",object(json!({"id":{"type":"string"},"seconds":{"type":"integer","minimum":0,"maximum":30}}),&["id"])),

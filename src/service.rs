@@ -37,6 +37,8 @@ pub struct Request {
     pub input: Value,
     #[serde(default)]
     pub working_directory: Option<std::path::PathBuf>,
+    #[serde(default)]
+    pub parent_id: Option<String>,
 }
 #[derive(Clone, Deserialize, Serialize)]
 pub struct Invocation {
@@ -53,6 +55,12 @@ pub struct Invocation {
     pub error: Option<String>,
     #[serde(default)]
     pub observation_error: Option<String>,
+    #[serde(default)]
+    pub parent_id: Option<String>,
+    #[serde(default)]
+    pub root_caller: String,
+    #[serde(default)]
+    pub assigned_peer: Option<String>,
     #[serde(default)]
     pub external: Option<crate::registry::Registration>,
 }
@@ -134,10 +142,72 @@ impl Service {
     pub fn get(&self, id: &str, caller: &str) -> Result<Invocation> {
         let db = self.db.lock().unwrap();
         let v = Self::load(&db, id)?;
-        if v.caller != caller && v.running.as_ref().is_none_or(|r| r.worker_id != caller) {
+        if v.caller != caller
+            && v.root_caller != caller
+            && v.running.as_ref().is_none_or(|r| r.worker_id != caller)
+        {
             bail!("not_authorized: invocation belongs to another caller")
         };
         Ok(v)
+    }
+    fn delegation_context(
+        &self,
+        db: &Connection,
+        caller: &str,
+        explicit_parent: Option<&str>,
+    ) -> Result<(Option<String>, String)> {
+        let managed:Option<String>=db.query_row("SELECT body FROM invocations WHERE json_extract(body,'$.assigned_peer')=?1 ORDER BY rowid DESC LIMIT 1",[caller],|r|r.get(0)).optional()?;
+        if let Some(raw) = managed {
+            let parent: Invocation = serde_json::from_str(&raw)?;
+            if !parent.package.allow_delegation
+                || !matches!(parent.state.as_str(), "launching" | "running")
+            {
+                bail!("not_authorized: this invocation cannot delegate")
+            }
+            if explicit_parent.is_some_and(|id| id != parent.id) {
+                bail!("not_authorized: parent must be the caller's own invocation")
+            }
+            let root = if parent.root_caller.is_empty() {
+                parent.caller.clone()
+            } else {
+                parent.root_caller.clone()
+            };
+            return Ok((Some(parent.id), root));
+        }
+        let operator: bool = db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM metadata WHERE key=?1 AND value='operator')",
+            [format!("operator:{caller}")],
+            |r| r.get(0),
+        )?;
+        if operator || caller == self.executor.comms.connection.participant_id {
+            if let Some(id) = explicit_parent {
+                let parent = Self::load(db, id)?;
+                if parent.caller != caller && parent.root_caller != caller {
+                    bail!("not_authorized: parent belongs to another caller")
+                }
+                return Ok((Some(id.into()), caller.into()));
+            }
+            return Ok((None, caller.into()));
+        }
+        let Some(parent_id) = explicit_parent else {
+            bail!("not_authorized: connected workers must specify their parent invocation")
+        };
+        let parent = Self::load(db, parent_id)?;
+        if parent
+            .running
+            .as_ref()
+            .is_none_or(|r| r.worker_id != caller)
+            || !parent.package.allow_delegation
+            || parent.state != "running"
+        {
+            bail!("not_authorized: parent invocation does not permit this delegation")
+        }
+        let root = if parent.root_caller.is_empty() {
+            parent.caller.clone()
+        } else {
+            parent.root_caller.clone()
+        };
+        Ok((Some(parent.id), root))
     }
     pub fn submit(self: &Arc<Self>, caller: &str, request: Request) -> Result<Invocation> {
         if request.request_key.is_empty() || request.request_key.len() > 128 {
@@ -158,6 +228,8 @@ impl Service {
             };
             return Ok(old);
         }
+        let (parent_id, root_caller) =
+            self.delegation_context(&db, caller, request.parent_id.as_deref())?;
         let (mut package, external) = if let Some(p) = self
             .config
             .packages
@@ -206,6 +278,9 @@ impl Service {
             output: None,
             error: None,
             observation_error: None,
+            parent_id,
+            root_caller,
+            assigned_peer: None,
             external,
         };
         Self::save(&db, &v)?;
@@ -287,6 +362,12 @@ impl Service {
                 }
             })?;
             if launching.state == "launching" {
+                let worker = self.executor.controls.register(
+                    &self.executor.scope,
+                    id,
+                    &launching.package.name,
+                )?;
+                self.update(id, |v| v.assigned_peer = Some(worker.participant_id))?;
                 match self.executor.launch(
                     id,
                     &launching.package,
@@ -531,7 +612,6 @@ impl Service {
 
 pub fn serve(config: Config, root: &Path) -> Result<()> {
     let service = Service::open(config, root)?;
-    service.resume()?;
     let socket = root.join("fabric.sock");
     if socket.exists() {
         fs::remove_file(&socket)?
@@ -541,6 +621,7 @@ pub fn serve(config: Config, root: &Path) -> Result<()> {
     let stopped = Arc::new(AtomicBool::new(false));
     let flag = stopped.clone();
     ctrlc::set_handler(move || flag.store(true, Ordering::Relaxed))?;
+    service.resume()?;
     eprintln!("Fabric listening on {}", socket.display());
     while !stopped.load(Ordering::Relaxed) {
         let Some(mut request) = server.recv_timeout(Duration::from_millis(100))? else {
@@ -569,6 +650,10 @@ pub fn serve(config: Config, root: &Path) -> Result<()> {
                         &service.executor.scope,
                         &format!("operator:{key}"),
                         params["name"].as_str().unwrap_or(key),
+                    )?;
+                    service.db.lock().unwrap().execute(
+                        "INSERT OR IGNORE INTO metadata(key,value) VALUES(?1,'operator')",
+                        [format!("operator:{}", connection.participant_id)],
                     )?;
                     return Ok(serde_json::to_value(connection)?);
                 }

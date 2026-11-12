@@ -167,7 +167,13 @@ Acceptance:
 
 ## FAB-007 — Support agent-to-agent capability delegation
 
-- [ ] Complete
+- [x] Complete
+
+Managed workers delegate under their own comms identities with pinned permission,
+parent/root attribution, and shared capacity limits. Reviewer/specialist process
+fixtures exchange questions and answers directly, then return through the caller.
+Integration tests cover successful delegation, denied permission, and a one-slot
+capacity rejection handled without deadlock. All six integration scenarios pass.
 
 Depends on FAB-006.
 

@@ -39,6 +39,15 @@ def main():
     connection = context["connection"]
     call(connection, "initialize", {"protocolVersion": "2025-03-26", "capabilities": {},
          "clientInfo": {"name": "fabric-echo", "version": "1"}})
+    inbox = call(connection, "tools/call", {"name": "read_messages", "arguments": {"thread_id": context["thread_id"]}})
+    batch = inbox.get("structuredContent") or json.loads(inbox["content"][0]["text"])
+    for message in batch["messages"]:
+        if message["payload"]["kind"] == "question":
+            call(connection, "tools/call", {"name": "send_message", "arguments": {
+                "operation_id": str(uuid.uuid4()), "thread_id": context["thread_id"],
+                "recipients": [message["sender"]], "in_reply_to": message["id"],
+                "payload": {"kind": "answer", "version": 1, "parts": [{"kind": "text", "text": "Specialist inspected the supplied context."}]},
+            }})
     call(connection, "tools/call", {"name": "send_message", "arguments": {
         "operation_id": str(uuid.uuid4()), "thread_id": context["thread_id"],
         "recipients": [context["result_recipient"]],

@@ -1,2 +1,5 @@
 /target/
 /.fabric/
+
+__pycache__/
+*.pyc

@@ -129,3 +129,19 @@ to give a native agent that same scoped MCP connection. No credential is passed
 on the command line. Fabric authenticates these credentials through Controls and
 checks invocation ownership; it does not maintain a second identity authority.
 The owner-only Unix socket remains a trusted host interface, not a sandbox.
+
+## Direct delegation
+
+Set `allow_delegation: true` on a package to let its running instances invoke
+other capabilities. Fabric infers the parent from the caller's existing identity;
+managed workers cannot bypass this policy by registering another capability.
+Connected workers specify `parent_id` and need delegation enabled on that accepted
+parent contract. Operator sessions may submit independent work directly.
+
+Child calls record the caller, parent, and root operator. The root operator can
+inspect descendants, but need not relay messages or results. Workers must finish
+required child work before completing their own invocation; parent completion does
+not automatically cancel children. Capacity applies to every admitted call. If a
+parent occupies the last slot, its child call fails immediately with
+`capacity_exhausted`; there is no hidden queue that can deadlock the parent.
+These are protocol permissions within a trusted host, not host-process isolation.

@@ -107,6 +107,7 @@ fn concurrent_durable_invocations_and_cancellation() {
         capability: "echo".into(),
         input: json!({"_delay":delay}),
         working_directory: None,
+        parent_id: None,
     };
     let a = service.submit(&caller, request("a", 1.0)).unwrap();
     let b = service.submit(&caller, request("b", 1.0)).unwrap();
@@ -294,6 +295,7 @@ fn live_registration_and_pinned_contracts() {
                 capability: "echo".into(),
                 input: json!({"task":"inspect"}),
                 working_directory: None,
+                parent_id: None,
             },
         )
         .unwrap();
@@ -408,4 +410,85 @@ fn official_mcp_client_interoperability() {
         .status()
         .unwrap();
     assert!(status.success());
+}
+
+#[test]
+#[ignore = "requires private standalone Controls; use tests/host/main.go"]
+fn direct_peer_delegation_permissions_and_capacity() {
+    use agent_fabric::{client::Client, service::terminal};
+    use std::{
+        process::{Command, Stdio},
+        time::{Duration, Instant},
+    };
+    for (capacity, allowed, expected) in [
+        (2, true, None),
+        (1, true, Some("capacity_exhausted")),
+        (2, false, Some("not_authorized")),
+    ] {
+        let mut config = config();
+        config.concurrency = capacity;
+        let mut reviewer = config.packages[0].clone();
+        reviewer.name = "reviewer".into();
+        reviewer.entrypoint = PathBuf::from("reviewer.sh");
+        reviewer.args = vec![env!("CARGO_BIN_EXE_fabric").into()];
+        reviewer.allow_delegation = allowed;
+        reviewer.capabilities.truncate(1);
+        reviewer.capabilities[0].name = "review".into();
+        config.packages.push(reviewer);
+        let dir = tempfile::Builder::new()
+            .prefix("fab-peer-")
+            .tempdir_in("/tmp")
+            .unwrap();
+        let config_path = dir.path().join("fabric.yaml");
+        std::fs::write(&config_path, serde_yaml::to_string(&config).unwrap()).unwrap();
+        let state = dir.path().join("state");
+        let socket = state.join("fabric.sock");
+        let host = Command::new(env!("CARGO_BIN_EXE_fabric"))
+            .arg("serve")
+            .arg(&config_path)
+            .arg(&state)
+            .stdin(Stdio::null())
+            .spawn()
+            .unwrap();
+        struct Stop(std::process::Child);
+        impl Drop for Stop {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+        let _stop = Stop(host);
+        let end = Instant::now() + Duration::from_secs(10);
+        let client = loop {
+            if let Ok(c) = Client::attach(&socket, "peer-operator") {
+                break c;
+            }
+            assert!(Instant::now() < end);
+            std::thread::sleep(Duration::from_millis(30));
+        };
+        let input = expected
+            .map(|e| json!({"expect_error":e}))
+            .unwrap_or(json!({}));
+        let accepted=client.call("invoke",json!({"request_key":"review","package":"reviewer","capability":"review","input":input})).unwrap();
+        let result = client
+            .call("wait", json!({"id":accepted["id"],"seconds":15}))
+            .unwrap();
+        assert!(terminal(result["state"].as_str().unwrap()), "{result}");
+        assert_eq!(result["state"], "completed", "{result}");
+        if let Some(expected) = expected {
+            assert_eq!(result["output"]["handled_error"], expected)
+        } else {
+            assert_eq!(result["output"]["specialist"]["finding"], "reviewed");
+            assert!(result["output"]["peer_answer"]
+                .as_str()
+                .unwrap()
+                .contains("Specialist"));
+            let child = client
+                .call("get", json!({"id":result["output"]["child_id"]}))
+                .unwrap();
+            assert_eq!(child["parent_id"], result["id"]);
+            assert_eq!(child["caller"], result["running"]["worker_id"]);
+            assert_eq!(child["root_caller"], client.connection.participant_id);
+        }
+    }
 }
