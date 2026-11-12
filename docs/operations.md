@@ -53,8 +53,23 @@ bin/fabric call wait '{"id":"RETURNED_INVOCATION_ID","seconds":20}'
 
 The default endpoint is read from `.fabric/endpoint.json` in the current directory.
 Supply an HTTPS URL or an endpoint file before the method when calling elsewhere.
-For the peer collaboration fixture, start `bin/fabric up fabric.demo.yaml` instead,
+For the peer collaboration fixture, start `bin/fabric up fabric.collaboration.yaml` instead,
 then invoke package `reviewer`, capability `review`, with input `{}`.
+
+## Go agent catalog
+
+`fabric.demo.yaml` mirrors all five packages in Registry's Go factory: readiness,
+architect, architecture_reviewer, coder_golang, and code_reviewer_golang. It uses
+relative registry paths and preserves the factory's provider overrides. The default
+working directory is the sibling Controls Go checkout; change it for your project.
+Inspect it with `bin/fabric catalog fabric.demo.yaml`.
+
+These are native registry launchers, not the deterministic fixtures. They still
+need Fabric MCP/completion integration before successful structured invocation.
+The readiness launcher currently requires Factory workflow runtime variables;
+Pi agents retain native profiles, and Fabric does not apply Factory's Pi preparer
+or translate its provider overrides. No workflow, approval gates, or worktree hooks
+are imported. Use `fabric.collaboration.yaml` for the runnable collaboration demo.
 
 ## Separate machines
 

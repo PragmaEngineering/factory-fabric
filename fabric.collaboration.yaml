@@ -1,0 +1,39 @@
+version: 1
+name: example
+concurrency: 4
+packages:
+  - name: utility
+    path: ./examples
+    entrypoint: echo.sh
+    args: []
+    working_directory: .
+    elapsed_seconds: 60
+    capabilities:
+      - name: echo
+        description: Return a structured value unchanged.
+        version: "1"
+        input_schema: {type: object}
+        output_schema: {type: object}
+      - name: inspect
+        description: Inspect structured task context.
+        version: "1"
+        input_schema:
+          type: object
+          required: [task]
+          properties:
+            task: {type: string}
+          additionalProperties: false
+        output_schema: {type: object}
+  - name: reviewer
+    path: ./examples
+    entrypoint: reviewer.sh
+    args: [fabric]
+    working_directory: .
+    elapsed_seconds: 60
+    allow_delegation: true
+    capabilities:
+      - name: review
+        description: Delegate an independent check and return its direct peer response.
+        version: "1"
+        input_schema: {type: object}
+        output_schema: {type: object}
