@@ -63,8 +63,9 @@ Do not change shared repository state merely because another invocation is activ
 
 If `FABRIC_CONTEXT_PATH` is supplied, read that private JSON context and the input
 at `FACTORY_INPUTS_PATH`. Use its connection and assigned thread. A native harness
-can connect through `fabric mcp SOCKET --context CONTEXT_PATH`; the socket is in
-`context.fabric_socket`. Keep credential contents out of prompts, output, and logs.
+can connect through `fabric mcp ENDPOINT --context CONTEXT_PATH`; use
+`context.fabric_endpoint`. Execution paths and environment references belong to the
+Controls execution host; do not assume shared filesystems. Keep credential contents out of prompts, output, and logs.
 
 Send completion through `comms_send_message`, addressed to `result_recipient`,
 with a new `operation_id` and this payload:

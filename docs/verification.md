@@ -106,3 +106,17 @@ temporary project and the actual paired binaries. It verifies managed PostgreSQL
 and Controls startup, duplicate-start rejection, structured invocation, Ctrl-C,
 result recovery after restart, and SIGTERM shutdown. It needs no database URL
 or model credentials.
+
+## Separate service HTTPS integration
+
+After `./scripts/build.sh`, run `python3 tests/network-stack.py`. It starts
+Controls and Fabric in separate processes/state directories, with separate HTTPS
+proxies and a private CA. It checks verified TLS, host credential rejection,
+host-side invocation file staging and environment lookup, reviewer-to-specialist
+delegation, worker privilege boundaries, and official MCP SDK discovery, calls,
+registration, caller isolation, and follow-up messages through the network adapter.
+It does not provision multiple physical machines; the test exercises the network
+and filesystem ownership boundaries using isolated directories on one machine.
+`remote_paths_belong_to_the_execution_host` separately verifies that configurations
+can refer to paths absent from the Fabric machine. Local lifecycle tests use
+authenticated TCP and check that PostgreSQL stops with the managed stack.

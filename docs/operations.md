@@ -17,6 +17,7 @@ and Fabric. No workflow engine is started. The first run may download PostgreSQL
 Wait for “Fabric listening”. Ctrl-C stops the stack and its active agents.
 Run the same command again to reuse stored conversations and invocation history.
 All project state and logs live in `.fabric/` beside the configuration; keep it.
+Local services use authenticated HTTP endpoints, recorded in `.fabric/endpoint.json`.
 Controls logs are `.fabric/controls.log`; database logs are
 `.fabric/controls/postgres.log`.
 
@@ -31,7 +32,7 @@ Use a stdio MCP server with absolute paths (replace `/path/to/project`):
 ```json
 {
   "command": "/path/to/fabric/bin/fabric",
-  "args": ["mcp", "/path/to/project/.fabric/fabric.sock", "--identity", "development"]
+  "args": ["mcp", "/path/to/project/.fabric/endpoint.json", "--identity", "development"]
 }
 ```
 
@@ -50,21 +51,22 @@ bin/fabric call invoke '{"request_key":"example-1","package":"utility","capabili
 bin/fabric call wait '{"id":"RETURNED_INVOCATION_ID","seconds":20}'
 ```
 
-The default socket is `.fabric/fabric.sock` in the current directory. Supply an
-explicit socket before the method when calling from elsewhere.
+The default endpoint is read from `.fabric/endpoint.json` in the current directory.
+Supply an HTTPS URL or an endpoint file before the method when calling elsewhere.
 For the peer collaboration fixture, start `bin/fabric up fabric.demo.yaml` instead,
 then invoke package `reviewer`, capability `review`, with input `{}`.
 
-## Existing infrastructure
+## Separate machines
 
-If you already operate PostgreSQL and Controls, retain the separate-service mode:
+Controls, Fabric, and the coding harness can run on separate machines. Connect
+using HTTPS endpoints and bearer credentials; see [network deployment](network.md).
+Package paths and environment references belong to the Controls execution host.
+Invocation inputs, context, prompts, and skills are transferred through its API.
+Packages themselves must be installed on that host.
 
-```sh
-FACTORY_DATABASE_URL=postgres://... factory-runtime --root /private/controls
-fabric serve /path/to/fabric.yaml /private/fabric-state
-```
+`fabric up` with `controls_endpoint` connects to that host and starts only Fabric.
+Explicit `serve` runs Fabric against existing infrastructure. Legacy Unix socket
+transport remains available for existing installations and compatibility tests.
 
-Set `controls_socket` in that configuration to `/private/controls/factory.sock`.
-In this mode Ctrl-C on Fabric leaves Controls and its supervised agents running.
 See [recovery and ownership](recovery.md) for failure states and restart limits,
 and [verification](verification.md) for tested behavior.

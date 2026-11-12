@@ -35,6 +35,8 @@ def main():
         context = json.load(source)
     with open(os.environ["FACTORY_INPUTS_PATH"]) as source:
         output = json.load(source)
+    if "_read_environment" in output:
+        output["execution_environment"] = os.getenv(output.pop("_read_environment"))
     if output.get("_crash"):
         raise RuntimeError("injected implementation failure")
     time.sleep(output.get("_delay", 0))

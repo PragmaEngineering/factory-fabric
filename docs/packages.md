@@ -4,7 +4,7 @@ Each invocation launches one configured command through Controls. `path` resolve
 from fabric.yaml; `entrypoint` stays within that package. Arguments are literal
 except `{prompt}`. Working directory defaults to the configuration directory and
 can be selected explicitly for each managed invocation. `environment` maps target
-variable names to host environment variable names. Provider credentials remain in
+variable names to execution-host environment variable names. Provider credentials remain in
 the environment; `overrides` is package-interpreted configuration, never a place
 for literal secrets. Host processes retain the host user's privileges.
 
@@ -13,11 +13,11 @@ context.json, and the embedded Fabric skill. Standard paths are passed through
 `FACTORY_INPUTS_PATH`, `FACTORY_PACKAGE_CONFIG`, `FACTORY_PROMPT_PATH`, and
 `FACTORY_INVOCATION_DIR`. `FABRIC_CONTEXT_PATH` locates the context;
 `FABRIC_SKILL_PATH` locates the provisioned skill. The context contains the
-invocation ID, pinned capability, assigned thread, result recipient, Fabric socket,
+invocation ID, pinned capability, assigned thread, result recipient, Fabric endpoint,
 and Controls connection (URL, token, participant ID). Do not print the connection.
 
 A native runner can configure a stdio MCP entry with the Fabric binary and args
-`["mcp", context.fabric_socket, "--context", FABRIC_CONTEXT_PATH]`. Append the
+`["mcp", context.fabric_endpoint, "--context", FABRIC_CONTEXT_PATH]`. Append the
 provided prompt and load the provisioned skill using that runner's supported
 mechanisms. The package owns this native configuration; the supervisor only
 launches the prepared command. Existing Registry packages that expect workflow
@@ -41,3 +41,12 @@ fails unfinished calls with external process state explicitly unknown.
 Question and answer messages are ordinary communication, not workflow decisions.
 They do not mutate accepted input. Complete or explicitly cancel required delegated
 calls before completing your own work. Parent completion does not cancel children.
+
+## Execution-host paths
+
+With `controls_endpoint`, package and working-directory paths must be absolute
+paths on the Controls host. Fabric does not read or canonicalize them locally.
+Inputs, context, prompt, and embedded skill are staged through the authenticated
+host workspace API. Package source and project checkouts must already be installed
+on that host. Environment references are resolved by Controls at launch, so host
+credentials need not pass through Fabric. See [network deployment](network.md).

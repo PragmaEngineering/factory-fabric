@@ -7,6 +7,8 @@ use std::{path::Path, time::Duration};
 #[derive(Clone)]
 pub struct Controls {
     http: Client,
+    base: String,
+    token: Option<String>,
 }
 #[derive(Clone, Deserialize, Serialize)]
 pub struct Connection {
@@ -17,6 +19,8 @@ pub struct Connection {
 impl Controls {
     pub fn new(socket: &Path) -> Result<Self> {
         Ok(Self {
+            base: "http://localhost".into(),
+            token: None,
             http: Client::builder()
                 .unix_socket(socket)
                 .no_proxy()
@@ -24,10 +28,32 @@ impl Controls {
                 .build()?,
         })
     }
+    pub fn connect(endpoint: &str, token: &str) -> Result<Self> {
+        validate_origin(endpoint)?;
+        if token.trim().len() < 32 {
+            bail!("network credential must contain at least 32 characters")
+        }
+        let mut builder = Client::builder()
+            .no_proxy()
+            .redirect(reqwest::redirect::Policy::none())
+            .timeout(Duration::from_secs(40));
+        if let Ok(path) = std::env::var("FABRIC_CA_CERT") {
+            builder = builder
+                .add_root_certificate(reqwest::Certificate::from_pem(&std::fs::read(path)?)?);
+        }
+        Ok(Self {
+            http: builder.build()?,
+            base: endpoint.trim_end_matches('/').into(),
+            token: Some(token.trim().into()),
+        })
+    }
     pub fn call(&self, method: &str, path: &str, body: Option<&Value>) -> Result<Value> {
         let mut request = self
             .http
-            .request(method.parse()?, format!("http://localhost{path}"));
+            .request(method.parse()?, format!("{}{path}", self.base));
+        if let Some(token) = &self.token {
+            request = request.bearer_auth(token);
+        }
         if let Some(body) = body {
             request = request.json(body);
         }
@@ -35,10 +61,10 @@ impl Controls {
             .send()
             .context("Controls request failed; inspect session state before retrying a launch")?;
         let status = response.status();
-        let value: Value = response.json()?;
         if !status.is_success() {
-            bail!("Controls {path}: {value}");
+            bail!("Controls {path}: HTTP {status}: {}", response.text()?);
         }
+        let value: Value = response.json()?;
         Ok(value)
     }
     pub fn scope(&self, name: &str) -> Result<String> {
@@ -67,17 +93,14 @@ pub struct Comms {
 }
 impl Comms {
     pub fn new(connection: Connection) -> Result<Self> {
-        let url = reqwest::Url::parse(&connection.url)?;
-        if url.scheme() != "http"
-            || !url.host_str().is_some_and(|h| {
-                h.parse::<std::net::IpAddr>()
-                    .is_ok_and(|ip| ip.is_loopback())
-            })
-        {
-            bail!("Controls comms endpoint must be loopback HTTP");
+        validate_endpoint(&connection.url)?;
+        let mut builder = Client::builder();
+        if let Ok(path) = std::env::var("FABRIC_CA_CERT") {
+            builder = builder
+                .add_root_certificate(reqwest::Certificate::from_pem(&std::fs::read(path)?)?);
         }
         let client = Self {
-            http: Client::builder()
+            http: builder
                 .no_proxy()
                 .redirect(reqwest::redirect::Policy::none())
                 .timeout(Duration::from_secs(40))
@@ -130,4 +153,30 @@ impl Comms {
             .context("missing tool result")?;
         Ok(serde_json::from_str(text)?)
     }
+}
+
+pub fn validate_endpoint(endpoint: &str) -> Result<()> {
+    let url = reqwest::Url::parse(endpoint)?;
+    let loopback = url.host_str().is_some_and(|h| {
+        h == "localhost"
+            || h.parse::<std::net::IpAddr>()
+                .is_ok_and(|ip| ip.is_loopback())
+    });
+    if (url.scheme() != "https" && !(url.scheme() == "http" && loopback))
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        bail!("endpoint requires HTTPS (HTTP allowed only on loopback), without embedded credentials, query, or fragment")
+    }
+    Ok(())
+}
+
+pub fn validate_origin(endpoint: &str) -> Result<()> {
+    validate_endpoint(endpoint)?;
+    if reqwest::Url::parse(endpoint)?.path() != "/" {
+        bail!("service endpoint must be an origin URL without a path")
+    }
+    Ok(())
 }

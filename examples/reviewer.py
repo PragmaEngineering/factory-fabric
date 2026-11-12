@@ -14,7 +14,7 @@ def main():
     with open(os.environ["FACTORY_INPUTS_PATH"]) as source:
         task = json.load(source)
     binary = sys.argv[1]
-    socket = context["fabric_socket"]
+    socket = context.get("fabric_endpoint", context.get("fabric_socket"))
 
     def fabric(method, arguments):
         result = subprocess.run([binary, "call", socket, method, json.dumps(arguments)],

@@ -6,17 +6,24 @@ const USAGE: &str = "Usage:
   fabric validate [fabric.yaml]
   fabric catalog [fabric.yaml]                  Inspect configured capabilities offline
   fabric serve CONFIG STATE_DIR                Run the asynchronous service
-  fabric call [SOCKET] METHOD ARGUMENTS_JSON     Call as the local CLI identity
-  fabric mcp [SOCKET] [--identity NAME | --context PATH]
+  fabric call [ENDPOINT] METHOD ARGUMENTS_JSON     Call as the local CLI identity
+  fabric mcp [ENDPOINT] [--identity NAME | --context PATH]
 
-Defaults use .fabric/fabric.sock in the current directory. See docs/operations.md.";
+Defaults read .fabric/endpoint.json in the current directory. See docs/operations.md.";
 fn run() -> Result<()> {
     let mut args: Vec<_> = std::env::args().skip(1).collect();
     if (args.first().is_some_and(|a| a == "call") && args.len() == 3)
         || (args.first().is_some_and(|a| a == "mcp")
             && (args.len() == 1 || args.get(1).is_some_and(|a| a.starts_with("--"))))
     {
-        args.insert(1, ".fabric/fabric.sock".into());
+        args.insert(
+            1,
+            if std::path::Path::new(".fabric/endpoint.json").exists() {
+                ".fabric/endpoint.json".into()
+            } else {
+                ".fabric/fabric.sock".into()
+            },
+        );
     }
     match args.first().map(String::as_str) {
         None | Some("help" | "--help" | "-h") => println!("{USAGE}"),
@@ -39,11 +46,11 @@ fn run() -> Result<()> {
             agent_fabric::service::serve(Config::load(Path::new(&args[1]))?, Path::new(&args[2]))?;
         }
         Some("call") if args.len() == 4 => {
-            let socket = Path::new(&args[1]);
+            let endpoint = agent_fabric::endpoint::resolve(&args[1])?;
             let client = if let Ok(path) = std::env::var("FABRIC_CONTEXT_PATH") {
-                agent_fabric::client::Client::from_context(socket, Path::new(&path))?
+                agent_fabric::client::Client::from_context_endpoint(&endpoint, Path::new(&path))?
             } else {
-                agent_fabric::client::Client::attach(socket, "cli")?
+                agent_fabric::client::Client::attach_endpoint(&endpoint, "cli")?
             };
             println!(
                 "{}",
@@ -51,18 +58,18 @@ fn run() -> Result<()> {
             );
         }
         Some("mcp") if args.len() == 2 || args.len() == 4 => {
-            let socket = Path::new(&args[1]);
+            let endpoint = agent_fabric::endpoint::resolve(&args[1])?;
             let client = if args.get(2).is_some_and(|a| a == "--context") {
-                agent_fabric::client::Client::from_context(socket, Path::new(&args[3]))?
+                agent_fabric::client::Client::from_context_endpoint(&endpoint, Path::new(&args[3]))?
             } else if args.get(2).is_some_and(|a| a == "--identity") {
-                agent_fabric::client::Client::attach(socket, &args[3])?
+                agent_fabric::client::Client::attach_endpoint(&endpoint, &args[3])?
             } else if args.len() == 2 {
-                agent_fabric::client::Client::attach(
-                    socket,
+                agent_fabric::client::Client::attach_endpoint(
+                    &endpoint,
                     &format!("session-{}", uuid::Uuid::new_v4()),
                 )?
             } else {
-                bail!("usage: fabric mcp SOCKET [--identity NAME | --context PATH]")
+                bail!("usage: fabric mcp ENDPOINT [--identity NAME | --context PATH]")
             };
             agent_fabric::mcp::serve(client)?;
         }

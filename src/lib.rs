@@ -1,6 +1,7 @@
 pub mod client;
 pub mod config;
 pub mod controls;
+pub mod endpoint;
 pub mod invocation;
 pub mod local;
 pub mod mcp;

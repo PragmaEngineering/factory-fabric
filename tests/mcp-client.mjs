@@ -3,11 +3,11 @@ import { pathToFileURL } from 'node:url';
 import { randomUUID } from 'node:crypto';
 const root = process.env.FABRIC_TEST_CONTROLS;
 const { Client } = await import(pathToFileURL(`${root}/node_modules/@modelcontextprotocol/sdk/dist/esm/client/index.js`));
-const { StdioClientTransport } = await import(pathToFileURL(`${root}/node_modules/@modelcontextprotocol/sdk/dist/esm/client/stdio.js`));
+const { StdioClientTransport, getDefaultEnvironment } = await import(pathToFileURL(`${root}/node_modules/@modelcontextprotocol/sdk/dist/esm/client/stdio.js`));
 const [binary, socket] = process.argv.slice(2);
 async function connect(identity) {
   const client = new Client({ name: 'fabric-integration', version: '1' });
-  const transport = new StdioClientTransport({ command: binary, args: ['mcp', socket, '--identity', identity], stderr: 'inherit' });
+  const transport = new StdioClientTransport({ command: binary, args: ['mcp', socket, '--identity', identity], stderr: 'inherit', env: { ...getDefaultEnvironment(), ...Object.fromEntries(['FABRIC_TOKEN', 'FABRIC_CA_CERT'].filter(k => process.env[k]).map(k => [k, process.env[k]])) } });
   await client.connect(transport);
   return client;
 }

@@ -89,15 +89,29 @@ impl Service {
         db.execute_batch(
             "CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY,value TEXT NOT NULL);",
         )?;
-        let identity = serde_json::to_string(
-            &json!({"name":config.name,"controls_socket":config.controls_socket}),
-        )?;
+        let identity = serde_json::to_string(&if let Some(endpoint) = &config.controls_endpoint {
+            json!({"name":config.name,"controls_endpoint":config.controls_identity.as_deref().unwrap_or(endpoint)})
+        } else {
+            json!({"name":config.name,"controls_socket":config.controls_socket})
+        })?;
         let recorded: Option<String> = db
             .query_row("SELECT value FROM metadata WHERE key='identity'", [], |r| {
                 r.get(0)
             })
             .optional()?;
-        if recorded.as_ref().is_some_and(|old| old != &identity) {
+        let previous_local = serde_json::to_string(
+            &json!({"name":config.name,"controls_socket":config.controls_socket}),
+        )?;
+        let migrating_local = config.controls_identity.as_deref()
+            == Some(format!("local:{}", root.display()).as_str())
+            && recorded.as_deref() == Some(previous_local.as_str());
+        if migrating_local {
+            db.execute(
+                "UPDATE metadata SET value=?1 WHERE key='identity'",
+                [&identity],
+            )?;
+        }
+        if !migrating_local && recorded.as_ref().is_some_and(|old| old != &identity) {
             bail!("state directory belongs to another Fabric name or Controls host")
         }
         db.execute(
@@ -255,8 +269,15 @@ impl Service {
             bail!("external capabilities own their working environment")
         }
         if let Some(path) = &request.working_directory {
-            let path = fs::canonicalize(path)?;
-            if !path.is_dir() {
+            let path = if self.executor.network {
+                if !path.is_absolute() {
+                    bail!("working_directory must be an absolute execution-host path")
+                }
+                path.clone()
+            } else {
+                fs::canonicalize(path)?
+            };
+            if !self.executor.network && !path.is_dir() {
                 bail!("working_directory must be a directory")
             };
             package.working_directory = Some(path)
@@ -631,20 +652,102 @@ pub fn serve_until(config: Config, root: &Path, stopped: Arc<AtomicBool>) -> Res
     if socket.exists() {
         fs::remove_file(&socket)?
     }
-    let server = tiny_http::Server::http_unix(&socket).map_err(|e| anyhow::anyhow!("{e}"))?;
-    fs::set_permissions(&socket, fs::Permissions::from_mode(0o600))?;
+    let network = std::env::var("FABRIC_LISTEN").ok().or_else(|| {
+        service
+            .config
+            .controls_endpoint
+            .as_ref()
+            .map(|_| "127.0.0.1:7332".into())
+    });
+    let admin_token = if network.is_some() {
+        Some(
+            fs::read_to_string(
+                std::env::var("FABRIC_API_TOKEN_FILE")
+                    .context("network server requires FABRIC_API_TOKEN_FILE")?,
+            )?
+            .trim()
+            .to_string(),
+        )
+    } else {
+        None
+    };
+    if admin_token.as_ref().is_some_and(|t| t.len() < 32) {
+        bail!("Fabric API credential requires at least 32 characters")
+    }
+    let server = if let Some(address) = &network {
+        let address: std::net::SocketAddr = address.parse()?;
+        if !address.ip().is_loopback() {
+            bail!("bind the origin to loopback and expose it through an HTTPS reverse proxy")
+        }
+        tiny_http::Server::http(address)
+    } else {
+        tiny_http::Server::http_unix(&socket)
+    }
+    .map_err(|e| anyhow::anyhow!("{e}"))?;
+    let public_url = if network.is_some() {
+        let url = service
+            .config
+            .fabric_endpoint
+            .clone()
+            .or_else(|| std::env::var("FABRIC_PUBLIC_URL").ok())
+            .unwrap_or_else(|| format!("http://{}", server.server_addr()));
+        crate::controls::validate_origin(&url)?;
+        crate::invocation::private_file_or_replace(
+            &root.join("endpoint.json"),
+            serde_json::to_vec(
+                &json!({"url":url,"token_file":fs::canonicalize(std::env::var("FABRIC_API_TOKEN_FILE")?)?}),
+            )?
+            .as_slice(),
+        )?;
+        Some(url)
+    } else {
+        fs::set_permissions(&socket, fs::Permissions::from_mode(0o600))?;
+        None
+    };
     service.resume()?;
-    eprintln!("Fabric listening on {}", socket.display());
+    eprintln!(
+        "Fabric listening on {}",
+        public_url
+            .as_deref()
+            .unwrap_or(socket.to_str().unwrap_or("socket"))
+    );
     while !stopped.load(Ordering::Relaxed) {
         let Some(mut request) = server.recv_timeout(Duration::from_millis(100))? else {
             continue;
         };
         let service = service.clone();
+        let admin_token = admin_token.clone();
+        let public_url = public_url.clone();
         std::thread::spawn(move || {
             let result = (|| -> Result<Value> {
                 if request.method().as_str() != "POST" || request.url() != "/rpc" {
                     bail!("POST /rpc required")
                 }
+                let header = |name: &'static str| {
+                    request
+                        .headers()
+                        .iter()
+                        .find(|h| h.field.equiv(name))
+                        .map(|h| h.value.as_str().to_string())
+                };
+                let authorization = header("Authorization")
+                    .and_then(|h| h.strip_prefix("Bearer ").map(str::to_owned));
+                if let Some(url) = &public_url {
+                    let authority = reqwest::Url::parse(url)?.authority().to_string();
+                    if header("Origin").is_some()
+                        || header("Host").as_deref() != Some(authority.as_str())
+                    {
+                        bail!("invalid origin or host")
+                    }
+                    if authorization.is_none() {
+                        bail!("credential required")
+                    }
+                }
+                let admin = admin_token.as_ref().is_none_or(|expected| {
+                    authorization
+                        .as_ref()
+                        .is_some_and(|actual| crate::endpoint::credential_matches(expected, actual))
+                });
                 let mut raw = String::new();
                 request.as_reader().take(131073).read_to_string(&mut raw)?;
                 if raw.len() > 131072 {
@@ -654,6 +757,9 @@ pub fn serve_until(config: Config, root: &Path, stopped: Arc<AtomicBool>) -> Res
                 let method = body["method"].as_str().context("method required")?;
                 let params = body.get("params").cloned().unwrap_or(json!({}));
                 if method == "attach" {
+                    if !admin {
+                        bail!("operator credential required")
+                    }
                     let key = params["key"].as_str().context("key required")?;
                     if key.len() > 150 {
                         bail!("identity key too long")
@@ -672,6 +778,9 @@ pub fn serve_until(config: Config, root: &Path, stopped: Arc<AtomicBool>) -> Res
                 let token = body["token"]
                     .as_str()
                     .context("participant token required")?;
+                if !admin && authorization.as_deref() != Some(token) {
+                    bail!("credential mismatch")
+                }
                 let caller = service.authenticate(token)?;
                 if method == "comms_tools" {
                     return Ok(service
@@ -713,6 +822,8 @@ pub fn serve_until(config: Config, root: &Path, stopped: Arc<AtomicBool>) -> Res
             let _ = request.respond(response);
         });
     }
-    fs::remove_file(socket)?;
+    if network.is_none() {
+        fs::remove_file(socket)?;
+    }
     Ok(())
 }

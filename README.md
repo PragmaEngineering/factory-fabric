@@ -15,7 +15,8 @@ bin/fabric up fabric.example.yaml
 ```
 
 Fabric starts private PostgreSQL and Controls automatically. Ctrl-C stops the
-stack and active agents. State stays in `.fabric/` beside your configuration.
+stack and active agents. Components can also run on separate machines using
+[authenticated HTTPS endpoints](docs/network.md). State stays in `.fabric/` beside your configuration.
 See the [operator guide](docs/operations.md) to connect your coding harness or
 try a capability from another terminal:
 

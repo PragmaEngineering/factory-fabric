@@ -14,6 +14,14 @@ pub struct Config {
     pub name: String,
     #[serde(default = "local_socket")]
     pub controls_socket: PathBuf,
+    #[serde(default)]
+    pub controls_endpoint: Option<String>,
+    #[serde(default)]
+    pub controls_token_env: Option<String>,
+    #[serde(default)]
+    pub controls_identity: Option<String>,
+    #[serde(default)]
+    pub fabric_endpoint: Option<String>,
     #[serde(default = "capacity")]
     pub concurrency: usize,
     pub packages: Vec<Package>,
@@ -123,6 +131,15 @@ impl Config {
         if config.controls_socket.is_relative() {
             config.controls_socket = base.join(&config.controls_socket);
         }
+        if let Some(endpoint) = &config.controls_endpoint {
+            crate::controls::validate_origin(endpoint)?;
+            if config.fabric_endpoint.is_none() {
+                bail!("network execution requires fabric_endpoint reachable from the Controls execution host")
+            }
+        }
+        if let Some(endpoint) = &config.fabric_endpoint {
+            crate::controls::validate_origin(endpoint)?;
+        }
         let mut packages = BTreeSet::new();
         for p in &mut config.packages {
             if !identifier(&p.name) || !packages.insert(p.name.clone()) {
@@ -131,20 +148,38 @@ impl Config {
             if p.elapsed_seconds == 0 || p.capabilities.is_empty() {
                 bail!("package needs positive elapsed_seconds and capabilities");
             }
-            p.path = fs::canonicalize(base.join(&p.path)).context("locate package path")?;
-            if p.entrypoint.is_absolute() {
-                bail!("entrypoint must be relative to its package");
-            }
-            let entry = fs::canonicalize(p.path.join(&p.entrypoint))
-                .context("locate package entrypoint")?;
-            if !entry.starts_with(&p.path) || !entry.is_file() {
-                bail!("entrypoint must be a file inside package path");
-            }
-            p.working_directory = Some(fs::canonicalize(
-                base.join(p.working_directory.as_deref().unwrap_or(Path::new("."))),
-            )?);
-            if !p.working_directory.as_ref().unwrap().is_dir() {
-                bail!("working_directory must be a directory");
+            if config.controls_endpoint.is_some() {
+                if !p.path.is_absolute()
+                    || !p
+                        .working_directory
+                        .as_ref()
+                        .is_some_and(|p| p.is_absolute())
+                {
+                    bail!("network execution requires absolute execution-host package and working_directory paths")
+                }
+                if p.entrypoint.is_absolute()
+                    || p.entrypoint
+                        .components()
+                        .any(|c| matches!(c, std::path::Component::ParentDir))
+                {
+                    bail!("entrypoint must stay inside execution-host package")
+                }
+            } else {
+                p.path = fs::canonicalize(base.join(&p.path)).context("locate package path")?;
+                if p.entrypoint.is_absolute() {
+                    bail!("entrypoint must be relative to its package");
+                }
+                let entry = fs::canonicalize(p.path.join(&p.entrypoint))
+                    .context("locate package entrypoint")?;
+                if !entry.starts_with(&p.path) || !entry.is_file() {
+                    bail!("entrypoint must be a file inside package path");
+                }
+                p.working_directory = Some(fs::canonicalize(
+                    base.join(p.working_directory.as_deref().unwrap_or(Path::new("."))),
+                )?);
+                if !p.working_directory.as_ref().unwrap().is_dir() {
+                    bail!("working_directory must be a directory");
+                }
             }
             for (target, source) in &p.environment {
                 let valid = |s: &str| {
@@ -201,6 +236,27 @@ mod tests {
         assert!(validate_value(&schema, &json!({"diff":42})).is_err());
         assert!(validate_schema(&json!({"$ref":"https://example.com/schema"})).is_err());
         assert!(validate_schema(&json!({"type":"typo"})).is_err());
+    }
+    #[test]
+    fn remote_paths_belong_to_the_execution_host() {
+        let c = Config::load(&Path::new(env!("CARGO_MANIFEST_DIR")).join("fabric.example.yaml"))
+            .unwrap();
+        let mut remote = c;
+        remote.controls_endpoint = Some("https://controls.example.test".into());
+        remote.fabric_endpoint = Some("https://fabric.example.test".into());
+        remote.packages[0].path = PathBuf::from("/not-on-this-machine/agents");
+        remote.packages[0].working_directory = Some(PathBuf::from("/not-on-this-machine/project"));
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("fabric.yaml");
+        fs::write(&path, serde_yaml::to_string(&remote).unwrap()).unwrap();
+        assert!(Config::load(&path).is_ok());
+        remote.packages[0].path = PathBuf::from("relative");
+        fs::write(&path, serde_yaml::to_string(&remote).unwrap()).unwrap();
+        assert!(Config::load(&path).is_err());
+        assert!(crate::controls::validate_endpoint("http://remote.example.test").is_err());
+        assert!(
+            crate::controls::validate_endpoint("https://user:secret@remote.example.test").is_err()
+        );
     }
     #[test]
     fn configuration_rejects_workflows_and_duplicate_packages() {

@@ -37,11 +37,15 @@ with tempfile.TemporaryDirectory(prefix="fab-local-", dir="/tmp") as directory:
             raise
 
     def stop(process, sig=signal.SIGINT):
+        endpoint = json.loads((root / ".fabric/controls/endpoint.json").read_text())["url"]
+        from urllib.parse import urlparse
+        address = urlparse(endpoint)
         process.send_signal(sig)
         assert process.wait(timeout=40) == 0
-        connection = socket.socket(socket.AF_UNIX)
+        assert not (root / ".fabric/controls/postgres-data/postmaster.pid").exists(), "PostgreSQL still running"
+        connection = socket.socket(socket.AF_INET)
         try:
-            connection.connect(str(root / ".fabric/controls/factory.sock"))
+            connection.connect((address.hostname, address.port))
         except (ConnectionRefusedError, FileNotFoundError):
             pass
         else:

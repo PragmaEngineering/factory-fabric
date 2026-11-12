@@ -256,3 +256,24 @@ The operator guide and README lead with this path; recovery details are separate
 Verification: `python3 tests/local-stack.py` covers first start, duplicate
 rejection, structured execution, Ctrl-C, persisted result recovery, and SIGTERM.
 Rust tests/clippy and Controls runtimehost tests/vet pass.
+
+## FAB-011 — Remove required co-location
+
+- [x] Complete
+
+Controls exposes authenticated network host operations and its existing
+participant-authenticated communication MCP endpoint. Fabric's RPC service and
+MCP/CLI clients accept authenticated endpoints. Remote access uses verified HTTPS
+through a deployment TLS proxy; local origins use authenticated loopback HTTP.
+The local `up` command uses the same endpoint APIs and records private discovery.
+Explicit Unix transport remains for compatibility, rather than being required.
+
+Inputs/context/prompts/skills are staged through Controls, package/working paths
+are explicit execution-host paths, and environment references resolve on that
+host. Packages/checkouts are installed there independently. Workers receive their
+participant credential and a reachable Fabric endpoint, not service admin tokens.
+
+Verification: separate-service HTTPS integration (including official MCP SDK and
+peer delegation), managed local lifecycle/restart, all eight existing runtime
+integrations, Rust tests/clippy, full Controls tests/vet, focused network auth and
+workspace tests, and skill validation. See `docs/network.md`.

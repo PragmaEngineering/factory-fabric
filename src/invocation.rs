@@ -29,6 +29,15 @@ pub fn private_file(path: &Path, content: &[u8]) -> Result<()> {
     f.sync_all()?;
     Ok(())
 }
+pub fn private_file_or_replace(path: &Path, content: &[u8]) -> Result<()> {
+    let temporary = path.with_extension("tmp");
+    if temporary.exists() {
+        fs::remove_file(&temporary)?;
+    }
+    private_file(&temporary, content)?;
+    fs::rename(temporary, path)?;
+    Ok(())
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Running {
     pub id: String,
@@ -51,12 +60,25 @@ pub struct Executor {
     pub comms: Comms,
     pub scope: String,
     pub root: PathBuf,
+    pub network: bool,
+    pub fabric_endpoint: Option<String>,
 }
 impl Executor {
     pub fn new(config: &Config, root: &Path) -> Result<Self> {
         private_dir(root)?;
         let root = fs::canonicalize(root)?;
-        let controls = Controls::new(&config.controls_socket)?;
+        let controls = if let Some(endpoint) = &config.controls_endpoint {
+            let token = std::env::var(
+                config
+                    .controls_token_env
+                    .as_deref()
+                    .unwrap_or("CONTROLS_TOKEN"),
+            )
+            .context("missing Controls host credential")?;
+            Controls::connect(endpoint, &token)?
+        } else {
+            Controls::new(&config.controls_socket)?
+        };
         let scope = controls.scope(&format!("fabric:{}", config.name))?;
         let connection = controls.register(&scope, "fabric-controller", "fabric")?;
         let comms = Comms::new(connection)?;
@@ -65,6 +87,8 @@ impl Executor {
             comms,
             scope,
             root,
+            network: config.controls_endpoint.is_some(),
+            fabric_endpoint: config.fabric_endpoint.clone(),
         })
     }
     pub fn comms_call(&self, name: &str, args: Value) -> Result<Value> {
@@ -100,35 +124,73 @@ impl Executor {
             .as_str()
             .context("missing thread id")?
             .to_string();
-        let dir = self.root.join(id);
-        private_dir(&dir)?;
-        private_file(&dir.join("input.json"), &serde_json::to_vec(input)?)?;
-        private_file(
-            &dir.join("config.json"),
-            &serde_json::to_vec(&package.overrides)?,
-        )?;
-        let prompt = format!("Execute capability {}.{} version {} with input at {}. Read FABRIC_CONTEXT_PATH for the communication connection and output schema. Report completion through send_message with payload kind fabric.result, version 1, one data part containing invocation_id and output, addressed to the result_recipient. Use a new operation_id for new content. Process exit alone is not completion.", package.name, capability.name, capability.version, dir.join("input.json").display());
-        let skill_dir = dir.join("skills/fabric");
-        private_dir(&skill_dir)?;
-        let skill_path = skill_dir.join("SKILL.md");
-        private_file(
-            &skill_path,
-            include_str!("../skills/fabric/SKILL.md").as_bytes(),
-        )?;
-        let prompt = format!(
-            "Read the Fabric skill at {}. {prompt}",
-            skill_path.display()
-        );
-        private_file(&dir.join("prompt.txt"), prompt.as_bytes())?;
-        let context = json!({"invocation_id":id,"capability":capability,"connection":worker,"thread_id":thread_id,"result_recipient":self.comms.connection.participant_id,"fabric_socket":self.root.parent().unwrap().join("fabric.sock"),"skill_path":skill_path});
-        private_file(&dir.join("context.json"), &serde_json::to_vec(&context)?)?;
+        let dir = if self.network {
+            let prepared = self.controls.call(
+                "POST",
+                &format!("/workspaces/{id}"),
+                Some(&json!({"files":{}})),
+            )?;
+            PathBuf::from(
+                prepared["directory"]
+                    .as_str()
+                    .context("missing execution-host workspace")?,
+            )
+        } else {
+            self.root.join(id)
+        };
+        let skill_path = dir.join("skills/fabric/SKILL.md");
+        let prompt = format!("Read the Fabric skill at {}. Execute capability {}.{} version {} with input at {}. Read FABRIC_CONTEXT_PATH for the communication connection and output schema. Report completion through send_message with payload kind fabric.result, version 1, one data part containing invocation_id and output, addressed to the result_recipient. Process exit alone is not completion.",skill_path.display(),package.name,capability.name,capability.version,dir.join("input.json").display());
+        let endpoint = if self.network {
+            self.fabric_endpoint
+                .clone()
+                .or_else(|| {
+                    fs::read(self.root.parent().unwrap().join("endpoint.json"))
+                        .ok()
+                        .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+                        .and_then(|v| v["url"].as_str().map(str::to_owned))
+                })
+                .context("network execution needs a reachable fabric_endpoint")?
+        } else {
+            self.root
+                .parent()
+                .unwrap()
+                .join("fabric.sock")
+                .to_string_lossy()
+                .into_owned()
+        };
+        let context = json!({"invocation_id":id,"capability":capability,"connection":worker,"thread_id":thread_id,"result_recipient":self.comms.connection.participant_id,"fabric_endpoint":endpoint,"fabric_socket":endpoint,"skill_path":skill_path});
+        let files = BTreeMap::from([
+            ("input.json", serde_json::to_string(input)?),
+            ("config.json", serde_json::to_string(&package.overrides)?),
+            ("context.json", serde_json::to_string(&context)?),
+            ("prompt.txt", prompt.clone()),
+            (
+                "skills/fabric/SKILL.md",
+                include_str!("../skills/fabric/SKILL.md").into(),
+            ),
+        ]);
+        if self.network {
+            self.controls.call(
+                "POST",
+                &format!("/workspaces/{id}"),
+                Some(&json!({"files":files})),
+            )?;
+        } else {
+            private_dir(&dir)?;
+            private_dir(&dir.join("skills/fabric"))?;
+            for (name, content) in files {
+                private_file(&dir.join(name), content.as_bytes())?;
+            }
+        }
         let mut environment = BTreeMap::new();
-        for (target, source) in &package.environment {
-            environment.insert(
-                target.clone(),
-                std::env::var(source)
-                    .with_context(|| format!("missing environment reference {source}"))?,
-            );
+        if !self.network {
+            for (target, source) in &package.environment {
+                environment.insert(
+                    target.clone(),
+                    std::env::var(source)
+                        .with_context(|| format!("missing environment reference {source}"))?,
+                );
+            }
         }
         for (key, value) in [
             ("FABRIC_CONTEXT_PATH", dir.join("context.json")),
@@ -146,7 +208,25 @@ impl Executor {
             .to_string_lossy()
             .into_owned()];
         command.extend(package.args.iter().map(|s| s.replace("{prompt}", &prompt)));
-        let session = self.controls.call("POST", "/sessions", Some(&json!({"name":format!("fabric:{id}"),"runner":"command","input_mode":"none","directory":package.working_directory,"command":command,"environment":environment}))).map_err(|e| if e.is::<reqwest::Error>() { anyhow::Error::new(LaunchUncertain(format!("{e:#}"))) } else { e })?;
+        let session_request = json!({"name":format!("fabric:{id}"),"runner":"command","input_mode":"none","directory":package.working_directory,"command":command,"environment":environment});
+        let (route, body) = if self.network {
+            (
+                "/launch",
+                json!({"session":session_request,"environment_references":package.environment}),
+            )
+        } else {
+            ("/sessions", session_request)
+        };
+        let session = self
+            .controls
+            .call("POST", route, Some(&body))
+            .map_err(|e| {
+                if e.is::<reqwest::Error>() {
+                    anyhow::Error::new(LaunchUncertain(format!("{e:#}")))
+                } else {
+                    e
+                }
+            })?;
         Ok(Running {
             id: id.to_string(),
             session_id: session["id"]
