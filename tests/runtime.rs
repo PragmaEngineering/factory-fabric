@@ -239,3 +239,116 @@ fn service_restart_observes_existing_session() {
     host.kill().unwrap();
     host.wait().unwrap();
 }
+
+#[test]
+#[ignore = "requires private standalone Controls; use tests/host/main.go"]
+fn live_registration_and_pinned_contracts() {
+    use agent_fabric::{
+        controls::Comms,
+        registry::RegistrationRequest,
+        service::{Request, Service},
+    };
+    use std::time::{Duration, Instant};
+    let config = config();
+    let dir = tempfile::tempdir().unwrap();
+    let service = Service::open(config.clone(), dir.path()).unwrap();
+    let controller = service.executor.comms.connection.participant_id.clone();
+    let identity = service
+        .executor
+        .controls
+        .register(&service.executor.scope, "external-test", "external")
+        .unwrap();
+    let external = Comms::new(identity.clone()).unwrap();
+    let mut capability = config.packages[0].capabilities[0].clone();
+    capability.output_schema = json!({"type":"string"});
+    let mut request = RegistrationRequest {
+        name: "connected".into(),
+        capabilities: vec![capability],
+        lease_seconds: 30,
+        allow_delegation: false,
+    };
+    let registration = service
+        .register(&identity.participant_id, request.clone())
+        .unwrap();
+    assert!(service
+        .catalog()
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|v| v["package"] == "connected" && v["availability"] == "connected"));
+    let invocation = service
+        .submit(
+            &controller,
+            Request {
+                request_key: "external".into(),
+                package: "connected".into(),
+                capability: "echo".into(),
+                input: json!({"task":"inspect"}),
+                working_directory: None,
+            },
+        )
+        .unwrap();
+    let until = Instant::now() + Duration::from_secs(10);
+    let dispatch = loop {
+        let batch = external
+            .call("read_messages", json!({"thread_id":registration.mailbox}))
+            .unwrap();
+        if let Some(message) = batch["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|v| v["payload"]["kind"] == "fabric.invoke")
+        {
+            break message["payload"]["parts"][0]["data"].clone();
+        }
+        assert!(Instant::now() < until);
+        std::thread::sleep(Duration::from_millis(30));
+    };
+    request.capabilities[0].version = "2".into();
+    request.capabilities[0].output_schema = json!({"type":"integer"});
+    service
+        .register(&identity.participant_id, request.clone())
+        .unwrap();
+    external.call("send_message",json!({"operation_id":"external-result","thread_id":dispatch["thread_id"],"recipients":[dispatch["result_recipient"]],"payload":{"kind":"fabric.result","version":1,"parts":[{"kind":"data","data":{"invocation_id":invocation.id,"output":"version one result"}}]}})).unwrap();
+    let result = await_terminal(&service, &invocation.id, &controller);
+    assert_eq!(result.state, "completed", "{:?}", result.error);
+    assert_eq!(result.capability.version, "1");
+    assert!(service.withdraw(&controller, "connected").is_err());
+    service
+        .withdraw(&identity.participant_id, "connected")
+        .unwrap();
+    assert!(service
+        .catalog()
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|v| v["package"] == "connected" && v["availability"] == "offline"));
+    request.lease_seconds = 1;
+    service
+        .register(&identity.participant_id, request.clone())
+        .unwrap();
+    std::thread::sleep(Duration::from_millis(1100));
+    assert!(service
+        .catalog()
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|v| v["package"] == "connected" && v["availability"] == "offline"));
+    request.lease_seconds = 30;
+    service.register(&identity.participant_id, request).unwrap();
+    service
+        .executor
+        .controls
+        .retire(&identity.participant_id)
+        .unwrap();
+    assert!(service
+        .catalog()
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|v| v["package"] == "connected" && v["availability"] == "unknown"));
+}

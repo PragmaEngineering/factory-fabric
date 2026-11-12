@@ -87,3 +87,23 @@ automatically repeated. Inspect the Controls sessions and resolve uncertain work
 before reusing its capacity. Stopping Fabric leaves supervised work with Controls;
 restart with the same state/configuration to reconcile it. Transport failures are
 reported while reconciliation continues. Accepted inputs/contracts remain pinned.
+
+## Connected implementations
+
+An authenticated comms peer can register `{name, capabilities, lease_seconds,
+allow_delegation}` through Fabric's `register` operation. Leases are 1–300 seconds;
+renew by registering again with the same identity/name. The response includes a
+mailbox thread. Read it through Controls comms to receive `fabric.invoke` messages
+containing the pinned contract, input, invocation thread, and result recipient.
+Send `fabric.result` on that invocation thread. No extra messaging protocol or
+process launcher is introduced for connected implementations.
+
+`catalog` and `describe` include configured and connected capabilities. Expired
+or withdrawn registrations remain inspectable as offline. An unavailable identity
+is unknown, not ready. Another identity cannot update or withdraw a registration.
+Changing registration contracts affects future calls only. Withdrawal/lease expiry
+fails unfinished calls explicitly; it cannot prove an external process stopped.
+For external calls, cancellation waits for the implementation's completion/error
+acknowledgement; lease expiry reports failure with unknown process state. Connected
+implementations own their execution environments and must implement their own
+resource enforcement; Fabric bounds admitted invocations, not external processes.

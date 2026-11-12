@@ -53,11 +53,13 @@ pub struct Invocation {
     pub error: Option<String>,
     #[serde(default)]
     pub observation_error: Option<String>,
+    #[serde(default)]
+    pub external: Option<crate::registry::Registration>,
 }
 pub struct Service {
     pub config: Config,
     pub executor: Executor,
-    db: Mutex<Connection>,
+    pub(crate) db: Mutex<Connection>,
     _lease: fs::File,
 }
 impl Service {
@@ -94,6 +96,9 @@ impl Service {
             "INSERT OR IGNORE INTO metadata(key,value) VALUES('identity',?1)",
             [identity],
         )?;
+        db.execute_batch(
+            "CREATE TABLE IF NOT EXISTS registrations(name TEXT PRIMARY KEY,body TEXT NOT NULL);",
+        )?;
         let executor = Executor::new(&config, &root.join("invocations"))?;
         let service = Arc::new(Self {
             config,
@@ -115,7 +120,11 @@ impl Service {
         db.execute("INSERT INTO invocations(id,caller,request_key,active,body) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(id) DO UPDATE SET active=excluded.active,body=excluded.body",params![v.id,v.caller,v.request.request_key,!terminal(&v.state),serde_json::to_string(v)?])?;
         Ok(())
     }
-    fn update(&self, id: &str, change: impl FnOnce(&mut Invocation)) -> Result<Invocation> {
+    pub(crate) fn update(
+        &self,
+        id: &str,
+        change: impl FnOnce(&mut Invocation),
+    ) -> Result<Invocation> {
         let db = self.db.lock().unwrap();
         let mut v = Self::load(&db, id)?;
         change(&mut v);
@@ -149,13 +158,17 @@ impl Service {
             };
             return Ok(old);
         }
-        let mut package = self
+        let (mut package, external) = if let Some(p) = self
             .config
             .packages
             .iter()
             .find(|p| p.name == request.package)
-            .context("unknown package")?
-            .clone();
+        {
+            (p.clone(), None)
+        } else {
+            let (p, r) = self.registered_package(&db, &request.package)?;
+            (p, Some(r))
+        };
         let capability = package
             .capabilities
             .iter()
@@ -163,6 +176,9 @@ impl Service {
             .context("unknown capability")?
             .clone();
         validate_value(&capability.input_schema, &request.input)?;
+        if external.is_some() && request.working_directory.is_some() {
+            bail!("external capabilities own their working environment")
+        }
         if let Some(path) = &request.working_directory {
             let path = fs::canonicalize(path)?;
             if !path.is_dir() {
@@ -190,6 +206,7 @@ impl Service {
             output: None,
             error: None,
             observation_error: None,
+            external,
         };
         Self::save(&db, &v)?;
         drop(db);
@@ -200,6 +217,9 @@ impl Service {
         let service = Arc::clone(self);
         std::thread::spawn(move || {
             if let Err(e) = service.drive(&id) {
+                let _ = service.update(&id, |v| {
+                    v.observation_error = Some(format!("reconciliation required: {e:#}"))
+                });
                 eprintln!("fabric: invocation {id} needs reconciliation: {e:#}")
             }
         });
@@ -224,7 +244,7 @@ impl Service {
             }
         })
     }
-    fn read_internal(&self, id: &str) -> Result<Invocation> {
+    pub(crate) fn read_internal(&self, id: &str) -> Result<Invocation> {
         Self::load(&self.db.lock().unwrap(), id)
     }
     fn recover_session(&self, v: &Invocation) -> Result<Option<Running>> {
@@ -256,6 +276,9 @@ impl Service {
     }
     fn drive(&self, id: &str) -> Result<()> {
         let initial = self.read_internal(id)?;
+        if initial.external.is_some() {
+            return self.drive_external(id);
+        }
         if initial.state == "accepted" {
             // Persist before launch: never automatically repeat an uncertain POST.
             let launching = self.update(id, |v| {
@@ -434,7 +457,32 @@ impl Service {
             "cancel" => Ok(serde_json::to_value(
                 self.cancel(args["id"].as_str().context("id required")?, caller)?,
             )?),
-            "catalog" => Ok(self.config.catalog()),
+            "catalog" => self.catalog(),
+            "describe" => {
+                let catalog = self.catalog()?;
+                let found = catalog
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|v| {
+                        v["package"] == args["package"]
+                            && (args.get("capability").is_none()
+                                || v["capability"]["name"] == args["capability"])
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>();
+                if found.is_empty() {
+                    bail!("unknown capability")
+                };
+                Ok(json!(found))
+            }
+            "register" => Ok(serde_json::to_value(
+                self.register(caller, serde_json::from_value(args)?)?,
+            )?),
+            "withdraw" => {
+                self.withdraw(caller, args["name"].as_str().context("name required")?)?;
+                Ok(json!({"withdrawn":true}))
+            }
             _ => bail!("unknown Fabric operation"),
         }
     }

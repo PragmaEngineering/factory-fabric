@@ -1,4 +1,5 @@
 pub mod config;
 pub mod controls;
 pub mod invocation;
+pub mod registry;
 pub mod service;

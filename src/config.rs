@@ -53,7 +53,7 @@ pub struct Capability {
     pub input_schema: Value,
     pub output_schema: Value,
 }
-fn identifier(v: &str) -> bool {
+pub(crate) fn identifier(v: &str) -> bool {
     !v.is_empty()
         && v.len() <= 100
         && v.bytes()

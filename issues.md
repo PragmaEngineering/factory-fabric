@@ -119,7 +119,12 @@ Acceptance:
 
 ## FAB-005 — Register and discover capabilities
 
-- [ ] Complete
+- [x] Complete
+
+Unified static/live catalog, connected registration, comms mailboxes, lease renewal,
+withdrawal, ownership checks, and pinned external invocation contracts implemented.
+Four real Controls integration scenarios pass; strict Rust clippy passes. Controls
+adds private identity inspection/authentication, reusing existing peer credentials.
 
 Depends on FAB-002 and FAB-004.
 
