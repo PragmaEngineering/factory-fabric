@@ -75,7 +75,8 @@ calls before completing your own work. Parent completion does not cancel childre
 
 With `controls_endpoint`, package and working-directory paths must be absolute
 paths on the Controls host. Fabric does not read or canonicalize them locally.
-Inputs, context, prompt, and embedded skill are staged through the authenticated
-host workspace API. Package source and project checkouts must already be installed
+MCP-mode inputs, configuration, and instructions are fetched through the
+authenticated assignment API. Legacy mode stages its context and assignment files
+through the host workspace API. Package source and project checkouts must already be installed
 on that host. Environment references are resolved by Controls at launch, so host
 credentials need not pass through Fabric. See [network deployment](network.md).

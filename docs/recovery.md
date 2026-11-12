@@ -34,9 +34,10 @@ implementations own their processes; an expired lease cannot prove they stopped.
   admission/contracts/results, caller/parent attribution, MCP adapter, skill.
 - Packages: native model/provider/tool configuration and capability behavior.
 
-Native workflow-oriented packages need a Fabric-aware launcher and completion
-contract. Controls' workflow Pi preparation is not automatically applied by raw
-session launch. Do not assume factory.yaml runtime settings work unchanged.
+Packages declaring `protocol: mcp` use the shared assignment API. Declared native
+Pi runtimes are prepared by Controls' existing adapter, including YAML provider
+overrides. Raw legacy session launches retain their own completion convention.
+Workflow routes and hooks remain Factory concerns.
 
 The supervisor cannot restore lost PTYs or model memory after its own restart.
 An interrupted session report does not prove an orphaned process stopped. Inspect

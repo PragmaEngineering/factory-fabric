@@ -67,20 +67,24 @@ All checks below passed:
 | service_restart_observes_existing_session | Fabric process killed and restarted; existing supervised call completes without duplicate launch |
 | direct_peer_delegation_permissions_and_capacity | Reviewer invokes specialist, exchanges direct messages, receives result; denied permission and one-slot exhaustion handled without deadlock |
 | native_codex_uses_fabric_mcp | Real Codex session discovers utility.echo, invokes it through MCP, retrieves the completed result, and returns JSON independently verified against Fabric's durable record |
+| readiness_uses_assignment_mcp_without_context_files | Real Registry classifier receives input/configuration and completes through assignment MCP without context files |
+| native_registry_agent_uses_assignment_mcp_and_yaml_runtime | Real Registry launcher, native preparation, and YAML provider/model selection using a model-free Pi fixture |
 | Existing Factory regressions | Full Controls go test ./... and go vet ./... |
 | Skill | skill-creator quick_validate.py; skill embedded and provisioned in managed invocations |
 
-Deterministic suite: eight integration scenarios passed. Native suite: one real
-Codex MCP scenario passed. Rust unit tests and strict clippy passed. Both example
-configurations validate. The release binary builds successfully.
+The current deterministic suite has ten integration cases, including real
+Registry readiness and a native Registry launcher with a model-free Pi fixture.
+The original FAB-009 verification also passed one real Codex MCP scenario; that
+paid-model operator smoke was not rerun for the shared-assignment migration.
+Rust tests/strict clippy, demo validation, and the release build pass.
 
 ## Scope of this evidence
 
 The native test proves the operator-to-MCP-to-supervisor-to-comms-to-result path.
 Reviewer and specialist fixtures exercise actual separate processes and identities
 but deliberately use deterministic implementations; these are protocol tests, not
-evidence of model review quality. Existing native workflow packages still need
-Fabric-aware startup and completion integration.
+evidence of model review quality. The Go Registry packages now use shared assignment MCP. The model-free Pi fixture
+checks runtime preparation and protocol behavior, not live model review quality.
 
 Restart testing covers Fabric observation recovery while Controls remains active.
 Controls does not transparently restore lost PTYs or model memory after supervisor

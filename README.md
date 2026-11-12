@@ -47,8 +47,9 @@ submissions go through the same durable admission path. Capacity exhaustion reje
 unaccepted work; there is no hidden queue. Child calls use the worker's existing
 identity and permission, with parent/root attribution.
 
-This is not full factory.yaml compatibility. Workflow routes, hooks, variables,
-native workflow-runtime requirements, and declarative loops are not supported.
+This is not full factory.yaml compatibility. Workflow routes, hooks, workflow
+variables, and declarative loops are not supported. Native Pi preparation is
+selected explicitly through the package runtime declaration.
 Registry Go packages use the shared `protocol: mcp` assignment contract. Other
 legacy packages can opt into it through the shared SDK.
 Connected implementations register with renewable leases and use comms mailboxes;

@@ -115,7 +115,8 @@ No socket or shared state directory is required on this machine.
 
 `fabric up` without `controls_endpoint` starts private local services, generates
 credentials, and records endpoint discovery in `.fabric/endpoint.json`. It uses
-the same network APIs and host-side staging. With `controls_endpoint`, it starts
+the same authenticated network APIs. MCP assignments stay in the API; legacy
+packages retain host-side file staging. With `controls_endpoint`, it starts
 only Fabric and connects to the remote host. Set `FABRIC_LISTEN` to the fixed
 loopback origin used by your HTTPS proxy in that deployment.
 
