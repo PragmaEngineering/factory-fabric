@@ -12,10 +12,14 @@ use std::{
 pub struct Config {
     pub version: u32,
     pub name: String,
+    #[serde(default = "local_socket")]
     pub controls_socket: PathBuf,
     #[serde(default = "capacity")]
     pub concurrency: usize,
     pub packages: Vec<Package>,
+}
+fn local_socket() -> PathBuf {
+    PathBuf::from(".fabric/controls/factory.sock")
 }
 fn capacity() -> usize {
     4

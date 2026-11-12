@@ -2,17 +2,29 @@ use agent_fabric::config::Config;
 use anyhow::{bail, Result};
 use std::path::Path;
 const USAGE: &str = "Usage:
+  fabric up [fabric.yaml]                      Start the local stack; Ctrl-C stops it
   fabric validate [fabric.yaml]
   fabric catalog [fabric.yaml]                  Inspect configured capabilities offline
   fabric serve CONFIG STATE_DIR                Run the asynchronous service
-  fabric call SOCKET METHOD ARGUMENTS_JSON     Call as the local CLI identity
-  fabric mcp SOCKET [--identity NAME | --context PATH]
+  fabric call [SOCKET] METHOD ARGUMENTS_JSON     Call as the local CLI identity
+  fabric mcp [SOCKET] [--identity NAME | --context PATH]
 
-Use call catalog '{}' for live discovery. See docs/operations.md for setup.";
+Defaults use .fabric/fabric.sock in the current directory. See docs/operations.md.";
 fn run() -> Result<()> {
-    let args: Vec<_> = std::env::args().skip(1).collect();
+    let mut args: Vec<_> = std::env::args().skip(1).collect();
+    if (args.first().is_some_and(|a| a == "call") && args.len() == 3)
+        || (args.first().is_some_and(|a| a == "mcp")
+            && (args.len() == 1 || args.get(1).is_some_and(|a| a.starts_with("--"))))
+    {
+        args.insert(1, ".fabric/fabric.sock".into());
+    }
     match args.first().map(String::as_str) {
         None | Some("help" | "--help" | "-h") => println!("{USAGE}"),
+        Some("up") if args.len() <= 2 => {
+            agent_fabric::local::up(Path::new(
+                args.get(1).map(String::as_str).unwrap_or("fabric.yaml"),
+            ))?;
+        }
         Some("validate" | "catalog") if args.len() <= 2 => {
             let config = Config::load(Path::new(
                 args.get(1).map(String::as_str).unwrap_or("fabric.yaml"),

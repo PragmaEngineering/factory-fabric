@@ -242,3 +242,17 @@ Acceptance:
 
 Declarative loops, orchestration policies, persistent worker pools, session reuse,
 automatic retries, federation, distributed deployment, and rewriting comms in Rust.
+
+## FAB-010 — Simplify local operation
+
+- [x] Complete
+
+`fabric up [fabric.yaml]` owns the foreground local stack: private PostgreSQL,
+Controls, and Fabric. One build script produces adjacent binaries. Local socket
+and state paths have defaults; CLI calls can omit the socket. Ctrl-C/SIGTERM
+stop the stack; project state survives restart. External-service mode is retained.
+The operator guide and README lead with this path; recovery details are separate.
+
+Verification: `python3 tests/local-stack.py` covers first start, duplicate
+rejection, structured execution, Ctrl-C, persisted result recovery, and SIGTERM.
+Rust tests/clippy and Controls runtimehost tests/vet pass.

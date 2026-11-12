@@ -98,3 +98,11 @@ Native configuration references:
 [official MCP configuration](https://learn.chatgpt.com/docs/extend/mcp?surface=cli)
 and [non-interactive Codex](https://learn.chatgpt.com/docs/non-interactive-mode).
 The installed CLI help was also checked before running the test.
+
+## Local stack lifecycle
+
+After `./scripts/build.sh`, run `python3 tests/local-stack.py`. This uses a private
+temporary project and the actual paired binaries. It verifies managed PostgreSQL
+and Controls startup, duplicate-start rejection, structured invocation, Ctrl-C,
+result recovery after restart, and SIGTERM shutdown. It needs no database URL
+or model credentials.

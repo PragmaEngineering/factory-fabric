@@ -619,6 +619,13 @@ impl Service {
 }
 
 pub fn serve(config: Config, root: &Path) -> Result<()> {
+    let stopped = Arc::new(AtomicBool::new(false));
+    let flag = stopped.clone();
+    ctrlc::set_handler(move || flag.store(true, Ordering::Relaxed))?;
+    serve_until(config, root, stopped)
+}
+
+pub fn serve_until(config: Config, root: &Path, stopped: Arc<AtomicBool>) -> Result<()> {
     let service = Service::open(config, root)?;
     let socket = root.join("fabric.sock");
     if socket.exists() {
@@ -626,9 +633,6 @@ pub fn serve(config: Config, root: &Path) -> Result<()> {
     }
     let server = tiny_http::Server::http_unix(&socket).map_err(|e| anyhow::anyhow!("{e}"))?;
     fs::set_permissions(&socket, fs::Permissions::from_mode(0o600))?;
-    let stopped = Arc::new(AtomicBool::new(false));
-    let flag = stopped.clone();
-    ctrlc::set_handler(move || flag.store(true, Ordering::Relaxed))?;
     service.resume()?;
     eprintln!("Fabric listening on {}", socket.display());
     while !stopped.load(Ordering::Relaxed) {

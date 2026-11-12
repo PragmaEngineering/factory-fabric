@@ -7,31 +7,20 @@ Factory workflow or Hatchet.
 
 ## Start here
 
-Build Fabric and validate the example:
+Build once, then start the local stack with one command:
 
 ```sh
-cargo build --release
-target/release/fabric validate fabric.example.yaml
+./scripts/build.sh
+bin/fabric up fabric.example.yaml
 ```
 
-Start Controls' standalone `factory-runtime` with an explicit PostgreSQL URL and
-private runtime directory, as described in the [operator guide](docs/operations.md).
-The example expects its socket at `/tmp/fabric-controls/factory.sock`. Then:
+Fabric starts private PostgreSQL and Controls automatically. Ctrl-C stops the
+stack and active agents. State stays in `.fabric/` beside your configuration.
+See the [operator guide](docs/operations.md) to connect your coding harness or
+try a capability from another terminal:
 
 ```sh
-target/release/fabric serve fabric.example.yaml /tmp/fabric-state
-# In another terminal:
-target/release/fabric call /tmp/fabric-state/fabric.sock catalog '{}'
-target/release/fabric call /tmp/fabric-state/fabric.sock invoke \
-  '{"request_key":"example-1","package":"utility","capability":"echo","input":{"task":"inspect"}}'
-target/release/fabric call /tmp/fabric-state/fabric.sock wait \
-  '{"id":"RETURNED_INVOCATION_ID","seconds":20}'
-```
-
-Connect a harness through the stdio command:
-
-```sh
-/path/to/fabric/target/release/fabric mcp /tmp/fabric-state/fabric.sock --identity development
+bin/fabric call catalog '{}'
 ```
 
 Load the reusable [Fabric skill](skills/fabric/SKILL.md). Managed invocations receive
@@ -67,7 +56,7 @@ and is not a sandbox. See the guides for recovery and supervisor-loss limitation
 ## Guides and verification
 
 - [Operator guide](docs/operations.md): setup, MCP attachment, CLI, collaboration,
-  lifecycle, and recovery.
+  and local startup.
 - [Package contract](docs/packages.md): invocation context, native integration,
   structured completion, and connected implementations.
 - [Verification evidence](docs/verification.md): reproducible commands, native

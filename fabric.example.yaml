@@ -1,6 +1,5 @@
 version: 1
 name: example
-controls_socket: /tmp/fabric-controls/factory.sock
 concurrency: 4
 packages:
   - name: utility
