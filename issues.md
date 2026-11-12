@@ -142,7 +142,12 @@ Acceptance:
 
 ## FAB-006 — Connect existing agent sessions through MCP
 
-- [ ] Complete
+- [x] Complete
+
+Authenticated session attachment, generic stdio MCP tools, bounded waiting, and
+canonical comms-tool forwarding implemented. Official MCP TypeScript client tests
+verify asynchronous calls, caller isolation, dynamic discovery, and two-way messages.
+All five real Controls/PostgreSQL integration scenarios pass.
 
 Depends on FAB-004 and FAB-005.
 

@@ -87,7 +87,7 @@ impl Comms {
         client.rpc("initialize", json!({"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"fabric","version":env!("CARGO_PKG_VERSION")}}))?;
         Ok(client)
     }
-    fn rpc(&self, method: &str, params: Value) -> Result<Value> {
+    pub(crate) fn rpc(&self, method: &str, params: Value) -> Result<Value> {
         let id = uuid::Uuid::new_v4().to_string();
         let response = self
             .http

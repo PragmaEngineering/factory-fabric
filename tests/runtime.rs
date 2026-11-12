@@ -188,7 +188,7 @@ fn service_restart_observes_existing_session() {
                 .call(
                     "POST",
                     "/rpc",
-                    Some(&json!({"method":"catalog","params":{}})),
+                    Some(&json!({"method":"attach","params":{"key":"restart-test","name":"restart-test"}})),
                 )
                 .is_ok()
             {
@@ -200,7 +200,15 @@ fn service_restart_observes_existing_session() {
     };
     let mut host = spawn();
     wait_ready();
-    let response=client.call("POST","/rpc",Some(&json!({"method":"invoke","params":{"request_key":"restart","package":"utility","capability":"echo","input":{"_delay":2}}}))).unwrap();
+    let attached = client
+        .call(
+            "POST",
+            "/rpc",
+            Some(&json!({"method":"attach","params":{"key":"restart-test","name":"restart-test"}})),
+        )
+        .unwrap();
+    let token = attached["result"]["token"].as_str().unwrap();
+    let response=client.call("POST","/rpc",Some(&json!({"token":token,"method":"invoke","params":{"request_key":"restart","package":"utility","capability":"echo","input":{"_delay":2}}}))).unwrap();
     let id = response["result"]["id"].as_str().unwrap();
     let end = Instant::now() + Duration::from_secs(10);
     loop {
@@ -208,7 +216,7 @@ fn service_restart_observes_existing_session() {
             .call(
                 "POST",
                 "/rpc",
-                Some(&json!({"method":"get","params":{"id":id}})),
+                Some(&json!({"token":token,"method":"get","params":{"id":id}})),
             )
             .unwrap();
         if v["result"]["running"].is_object() {
@@ -227,7 +235,7 @@ fn service_restart_observes_existing_session() {
             .call(
                 "POST",
                 "/rpc",
-                Some(&json!({"method":"get","params":{"id":id}})),
+                Some(&json!({"token":token,"method":"get","params":{"id":id}})),
             )
             .unwrap();
         if v["result"]["state"] == "completed" {
@@ -351,4 +359,53 @@ fn live_registration_and_pinned_contracts() {
         .unwrap()
         .iter()
         .any(|v| v["package"] == "connected" && v["availability"] == "unknown"));
+}
+
+#[test]
+#[ignore = "requires private standalone Controls and official MCP client; use tests/host/main.go"]
+fn official_mcp_client_interoperability() {
+    use agent_fabric::client::Client;
+    use std::{
+        process::{Command, Stdio},
+        time::{Duration, Instant},
+    };
+    let config = config();
+    let dir = tempfile::Builder::new()
+        .prefix("fab-mcp-")
+        .tempdir_in("/tmp")
+        .unwrap();
+    let config_path = dir.path().join("fabric.yaml");
+    std::fs::write(&config_path, serde_yaml::to_string(&config).unwrap()).unwrap();
+    let state = dir.path().join("state");
+    let socket = state.join("fabric.sock");
+    let host = Command::new(env!("CARGO_BIN_EXE_fabric"))
+        .arg("serve")
+        .arg(&config_path)
+        .arg(&state)
+        .stdin(Stdio::null())
+        .spawn()
+        .unwrap();
+    struct Stop(std::process::Child);
+    impl Drop for Stop {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+    let _stop = Stop(host);
+    let end = Instant::now() + Duration::from_secs(10);
+    loop {
+        if Client::attach(&socket, "probe").is_ok() {
+            break;
+        }
+        assert!(Instant::now() < end);
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let status = Command::new("node")
+        .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/mcp-client.mjs"))
+        .arg(env!("CARGO_BIN_EXE_fabric"))
+        .arg(&socket)
+        .status()
+        .unwrap();
+    assert!(status.success());
 }

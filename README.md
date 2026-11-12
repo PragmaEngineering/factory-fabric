@@ -107,3 +107,25 @@ For external calls, cancellation waits for the implementation's completion/error
 acknowledgement; lease expiry reports failure with unknown process state. Connected
 implementations own their execution environments and must implement their own
 resource enforcement; Fabric bounds admitted invocations, not external processes.
+
+## Connect an existing coding session
+
+Run `fabric mcp /absolute/private/fabric-state/fabric.sock --identity my-session`
+as a stdio MCP server in your harness. Keep the same identity name to retrieve
+that session's prior invocations after reconnecting; distinct names keep callers
+separate. Omitting the name creates a fresh identity. The stdio process attaches
+to the running service; it does not start a workflow or launch another operator.
+
+The generic tools are `agents_list`, `agents_describe`, `agents_invoke`,
+`invocations_get`, `invocations_wait`, `invocations_cancel`, `agents_register`, and
+`agents_withdraw`. Existing comms tools are exposed with a `comms_` prefix; their
+schemas come directly from Controls. New capabilities appear through discovery
+without adding tools. Results are in `structuredContent.result` and text content.
+All mutations must use their documented idempotency keys.
+
+CLI `call` uses a stable local `cli` identity. Managed packages automatically use
+their identity from `FABRIC_CONTEXT_PATH`; use `fabric mcp SOCKET --context PATH`
+to give a native agent that same scoped MCP connection. No credential is passed
+on the command line. Fabric authenticates these credentials through Controls and
+checks invocation ownership; it does not maintain a second identity authority.
+The owner-only Unix socket remains a trusted host interface, not a sandbox.

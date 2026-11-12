@@ -18,10 +18,20 @@ fn run() -> Result<()> {
             agent_fabric::service::serve(Config::load(Path::new(&args[1]))?,Path::new(&args[2]))?;
         }
         Some("call") if args.len() == 4 => {
-            let client = agent_fabric::controls::Controls::new(Path::new(&args[1]))?;
-            let response = client.call("POST","/rpc",Some(&serde_json::json!({"method":args[2],"params":serde_json::from_str::<serde_json::Value>(&args[3])?})))?;
-            if let Some(error) = response.get("error") { bail!("{error}"); }
-            println!("{}",response["result"]);
+            let socket=Path::new(&args[1]);
+            let client=if let Ok(path)=std::env::var("FABRIC_CONTEXT_PATH") {agent_fabric::client::Client::from_context(socket,Path::new(&path))?}else{agent_fabric::client::Client::attach(socket,"cli")?};
+            println!("{}",client.call(&args[2],serde_json::from_str(&args[3])?)?);
+        }
+        Some("mcp") if args.len()==2 || args.len()==4 => {
+            let socket=Path::new(&args[1]);
+            let client=if args.get(2).is_some_and(|a|a=="--context") {
+                agent_fabric::client::Client::from_context(socket,Path::new(&args[3]))?
+            }else if args.get(2).is_some_and(|a|a=="--identity"){
+                agent_fabric::client::Client::attach(socket,&args[3])?
+            }else if args.len()==2{
+                agent_fabric::client::Client::attach(socket,&format!("session-{}",uuid::Uuid::new_v4()))?
+            }else{bail!("usage: fabric mcp SOCKET [--identity NAME | --context PATH]")};
+            agent_fabric::mcp::serve(client)?;
         }
         Some("run") if args.len() == 6 => {
             let config = Config::load(Path::new(&args[1]))?;

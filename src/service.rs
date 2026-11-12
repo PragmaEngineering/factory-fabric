@@ -446,6 +446,28 @@ impl Service {
             std::thread::sleep(Duration::from_millis(100));
         }
     }
+    pub fn authenticate(&self, token: &str) -> Result<String> {
+        let peer = self.executor.controls.call(
+            "POST",
+            "/comms/authenticate",
+            Some(&json!({"token":token})),
+        )?;
+        if peer["execution_id"] != self.executor.scope {
+            bail!("not_authorized: identity belongs to another Fabric scope")
+        }
+        Ok(peer["id"].as_str().context("missing peer id")?.into())
+    }
+    fn caller_comms(&self, caller: &str, token: &str) -> Result<crate::controls::Comms> {
+        let endpoint = self.executor.controls.call("GET", "/comms", None)?;
+        crate::controls::Comms::new(crate::controls::Connection {
+            url: endpoint["url"]
+                .as_str()
+                .context("missing comms URL")?
+                .into(),
+            token: token.into(),
+            participant_id: caller.into(),
+        })
+    }
     pub fn rpc(self: &Arc<Self>, name: &str, args: Value, caller: &str) -> Result<Value> {
         match name {
             "invoke" => Ok(serde_json::to_value(
@@ -457,6 +479,25 @@ impl Service {
             "cancel" => Ok(serde_json::to_value(
                 self.cancel(args["id"].as_str().context("id required")?, caller)?,
             )?),
+            "wait" => {
+                let id = args["id"].as_str().context("id required")?;
+                let seconds = args
+                    .get("seconds")
+                    .map(|v| v.as_u64().context("seconds must be an integer"))
+                    .transpose()?
+                    .unwrap_or(20);
+                if seconds > 30 {
+                    bail!("seconds must be 0..30")
+                }
+                let deadline = std::time::Instant::now() + Duration::from_secs(seconds);
+                loop {
+                    let v = self.get(id, caller)?;
+                    if terminal(&v.state) || std::time::Instant::now() >= deadline {
+                        return Ok(serde_json::to_value(v)?);
+                    };
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+            }
             "catalog" => self.catalog(),
             "describe" => {
                 let catalog = self.catalog()?;
@@ -517,12 +558,53 @@ pub fn serve(config: Config, root: &Path) -> Result<()> {
                     bail!("request too large")
                 }
                 let body: Value = serde_json::from_str(&raw)?;
-                let caller = service.executor.comms.connection.participant_id.clone();
-                service.rpc(
-                    body["method"].as_str().context("method required")?,
-                    body.get("params").cloned().unwrap_or(json!({})),
-                    &caller,
-                )
+                let method = body["method"].as_str().context("method required")?;
+                let params = body.get("params").cloned().unwrap_or(json!({}));
+                if method == "attach" {
+                    let key = params["key"].as_str().context("key required")?;
+                    if key.len() > 150 {
+                        bail!("identity key too long")
+                    }
+                    let connection = service.executor.controls.register(
+                        &service.executor.scope,
+                        &format!("operator:{key}"),
+                        params["name"].as_str().unwrap_or(key),
+                    )?;
+                    return Ok(serde_json::to_value(connection)?);
+                }
+                let token = body["token"]
+                    .as_str()
+                    .context("participant token required")?;
+                let caller = service.authenticate(token)?;
+                if method == "comms_tools" {
+                    return Ok(service
+                        .caller_comms(&caller, token)?
+                        .rpc("tools/list", json!({}))?["tools"]
+                        .clone());
+                }
+                if method == "comms_call" {
+                    let name = params["name"]
+                        .as_str()
+                        .context("comms tool name required")?;
+                    if ![
+                        "create_thread",
+                        "add_participant",
+                        "remove_participants",
+                        "list_participants",
+                        "send_message",
+                        "read_messages",
+                        "wait_for_message",
+                        "close_thread",
+                    ]
+                    .contains(&name)
+                    {
+                        bail!("unknown comms tool")
+                    }
+                    return service
+                        .caller_comms(&caller, token)?
+                        .call(name, params.get("arguments").cloned().unwrap_or(json!({})));
+                }
+                service.rpc(method, params, &caller)
             })();
             let value = match result {
                 Ok(value) => json!({"result":value}),
