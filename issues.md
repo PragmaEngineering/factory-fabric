@@ -287,7 +287,7 @@ supervision, registry leases, and workflow effects are retained.
 
 ## FAB-013 — Specify one agent-facing MCP assignment contract
 
-- [ ] Complete
+- [x] Complete
 
 Implement in order against `docs/assignment-contract.md`; verify observable behavior
 and commit the completed issue before continuing.
