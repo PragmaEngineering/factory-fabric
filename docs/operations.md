@@ -19,7 +19,7 @@ Run the same command again to reuse stored conversations and invocation history.
 All project state and logs live in `.fabric/` beside the configuration; keep it.
 Local services use authenticated HTTP endpoints, recorded in `.fabric/endpoint.json`.
 Controls logs are `.fabric/controls.log`; database logs are
-`.fabric/controls/postgres.log`.
+`.fabric/controls/postgres.log`.h
 
 For your own project, copy the example to `fabric.yaml`, define your packages,
 and run `fabric up`. Omit `controls_socket`: local startup supplies the default.
