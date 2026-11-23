@@ -18,7 +18,7 @@ schema. `assignment_status` reports running/waiting; `assignment_complete` accep
 one output or error and returns a durable receipt. The same contract is used by
 Factory and Fabric. Agents do not choose a workflow-specific completion payload.
 
-For native Pi packages, declare `runtime: {name: pi, version: '=1.0.3'}`. Controls
+For native Pi packages, declare `runtime: {name: pi, version: '>=1.0.0 <2.0.0'}`. Controls
 uses its existing adapter to check the executable, create the native private
 profile, and apply YAML provider/model overrides. The shared Pi bridge loads the
 assignment through MCP and configures communication tools. No generated input,
@@ -80,3 +80,5 @@ authenticated assignment API. Legacy mode stages its context and assignment file
 through the host workspace API. Package source and project checkouts must already be installed
 on that host. Environment references are resolved by Controls at launch, so host
 credentials need not pass through Fabric. See [network deployment](network.md).
+
+Pi compatibility belongs to Controls: stable Pi 1.x (`>=1.0.0 <2.0.0`) is accepted, intersected with the package constraint at runtime preparation. Fabric forwards `runtime.version` unchanged; offline configuration validation does not probe the execution host or establish version compatibility. An omitted version uses the adapter policy. Other majors and prereleases are rejected by Controls. Exact session versions remain recorded, and Factory retries cannot silently change them.

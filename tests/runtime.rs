@@ -636,7 +636,7 @@ fn native_registry_agent_uses_assignment_mcp_and_yaml_runtime() {
     package.args.clear();
     package.runtime = Some(NativeRuntime {
         name: "pi".into(),
-        version: "=1.0.3".into(),
+        version: ">=1.0.0 <2.0.0".into(),
         executable: Some(
             Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("tests/fixtures/pi-assignment.mjs")

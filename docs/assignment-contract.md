@@ -82,7 +82,7 @@ on the execution host; assignment delivery itself never requires shared files.
 
 ### Native runtime and migration boundary
 
-`runtime: {name: pi, version: '=1.0.3'}` and `protocol: mcp` select supported native
+`runtime: {name: pi, version: '>=1.0.0 <2.0.0'}` and `protocol: mcp` select supported native
 preparation in YAML. Existing package provider overrides are applied by that
 preparer, not reimplemented in each registry agent. `environment` remains the
 explicit execution-host secret-reference mapping. Connected implementations keep

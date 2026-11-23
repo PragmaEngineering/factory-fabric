@@ -161,9 +161,11 @@ impl Config {
             if !["legacy", "mcp"].contains(&p.protocol.as_str()) {
                 bail!("protocol must be legacy or mcp")
             }
+            // Controls owns version-constraint parsing and installed-runtime compatibility.
+            // Forward the requested constraint rather than pinning another Pi release here.
             if let Some(runtime) = &p.runtime {
-                if runtime.name != "pi" || runtime.version != "=1.0.3" || p.protocol != "mcp" {
-                    bail!("native runtime requires protocol: mcp and pi version =1.0.3")
+                if runtime.name != "pi" || p.protocol != "mcp" {
+                    bail!("native runtime requires protocol: mcp and runtime.name: pi")
                 }
             }
 
@@ -283,6 +285,40 @@ mod tests {
         assert!(
             crate::controls::validate_endpoint("https://user:secret@remote.example.test").is_err()
         );
+    }
+    #[test]
+    fn native_pi_constraints_are_forwarded_to_controls() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut config = Config::load(&root.join("fabric.example.yaml")).unwrap();
+        config.packages[0].protocol = "mcp".into();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("fabric.yaml");
+        for constraint in ["", "=1.0.3", ">=1.0.0 <2.0.0", "=1.5.0"] {
+            config.packages[0].runtime = Some(NativeRuntime {
+                name: "pi".into(),
+                version: constraint.into(),
+                executable: None,
+            });
+            fs::write(&path, serde_yaml::to_string(&config).unwrap()).unwrap();
+            let loaded = Config::load(&path).unwrap();
+            assert_eq!(
+                loaded.packages[0].runtime.as_ref().unwrap().version,
+                constraint
+            );
+        }
+        config.packages[0].protocol = "legacy".into();
+        fs::write(&path, serde_yaml::to_string(&config).unwrap()).unwrap();
+        assert!(Config::load(&path)
+            .unwrap_err()
+            .to_string()
+            .contains("protocol: mcp"));
+        config.packages[0].protocol = "mcp".into();
+        config.packages[0].runtime.as_mut().unwrap().name = "unknown".into();
+        fs::write(&path, serde_yaml::to_string(&config).unwrap()).unwrap();
+        assert!(Config::load(&path)
+            .unwrap_err()
+            .to_string()
+            .contains("runtime.name: pi"));
     }
     #[test]
     fn configuration_rejects_workflows_and_duplicate_packages() {

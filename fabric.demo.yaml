@@ -46,7 +46,7 @@ packages:
       type: object
 - name: architect
   protocol: mcp
-  runtime: {name: pi, version: "=1.0.3"}
+  runtime: {name: pi, version: ">=1.0.0 <2.0.0"}
   path: ../registry/agents/architect
   entrypoint: start.sh
   working_directory: ../controls
@@ -89,7 +89,7 @@ packages:
       type: object
 - name: architecture_reviewer
   protocol: mcp
-  runtime: {name: pi, version: "=1.0.3"}
+  runtime: {name: pi, version: ">=1.0.0 <2.0.0"}
   path: ../registry/agents/architecture_reviewer
   entrypoint: start.sh
   working_directory: ../controls
@@ -132,7 +132,7 @@ packages:
       type: object
 - name: coder_golang
   protocol: mcp
-  runtime: {name: pi, version: "=1.0.3"}
+  runtime: {name: pi, version: ">=1.0.0 <2.0.0"}
   path: ../registry/agents/coder_golang
   entrypoint: start.sh
   working_directory: ../controls
@@ -175,7 +175,7 @@ packages:
       type: object
 - name: code_reviewer_golang
   protocol: mcp
-  runtime: {name: pi, version: "=1.0.3"}
+  runtime: {name: pi, version: ">=1.0.0 <2.0.0"}
   path: ../registry/agents/code_reviewer_golang
   entrypoint: start.sh
   working_directory: ../controls

@@ -128,6 +128,6 @@ Controls endpoint requires a new Fabric state directory unless it is the managed
 local identity. Persisted calls are not silently moved to another execution host.
 
 New packages should declare `protocol: mcp`; native Pi packages also declare
-`runtime: {name: pi, version: '=1.0.3'}`. Node agents using private CAs need a
+`runtime: {name: pi, version: '>=1.0.0 <2.0.0'}`. Node agents using private CAs need a
 configured trust root (for example `NODE_EXTRA_CA_CERTS` in their execution-host
 service environment). Standard public CA certificates need no custom trust setup.
